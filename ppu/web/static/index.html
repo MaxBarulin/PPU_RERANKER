@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка ППУ</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+  --accent: #2f5bea; --accent-text: #fff;
+  --repeat: #c2410c; --repeat-bg: #fff1e8;
+  --other: #a16207; --other-bg: #fef8e6;
+  --similar: #1d4ed8; --similar-bg: #eaf1ff;
+  --unique: #15803d; --unique-bg: #e9f8ee;
+  --alt: #7e22ce; --alt-bg: #f5ecff;
+  --far: #98a2b3;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b1f27; --text: #e6e8ec; --muted: #98a2b3; --line: #2c323d;
+    --accent: #6d8cff; --accent-text: #0d1117;
+    --repeat: #fb923c; --repeat-bg: #2d1c12;
+    --other: #facc15; --other-bg: #2a2410;
+    --similar: #93b4ff; --similar-bg: #18233d;
+    --unique: #4ade80; --unique-bg: #12291b;
+    --alt: #d8b4fe; --alt-bg: #261a36;
+    --far: #667085;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+         display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 18px; }
+header .info { color: var(--muted); font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 20px;
+       padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+form label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
+form label:first-child { margin-top: 0; }
+form label small { font-weight: 400; color: var(--muted); }
+input, textarea { width: 100%; font: inherit; color: inherit; background: var(--bg);
+                  border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+textarea { min-height: 92px; resize: vertical; }
+input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+button { font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 9px 18px;
+         background: var(--accent); color: var(--accent-text); cursor: pointer; }
+button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+button:disabled { opacity: .55; cursor: wait; }
+.hint { color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); text-align: center; padding: 60px 20px; }
+.error { color: var(--repeat); background: var(--repeat-bg); border-radius: 8px; padding: 12px 14px; }
+.verdict { border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+.verdict h2 { margin: 0 0 4px; font-size: 19px; }
+.verdict .meta { font-size: 13px; color: var(--muted); }
+.v-repeat { background: var(--repeat-bg); color: var(--repeat); }
+.v-other_place { background: var(--other-bg); color: var(--other); }
+.v-similar { background: var(--similar-bg); color: var(--similar); }
+.v-unique { background: var(--unique-bg); color: var(--unique); }
+.meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 10px 0 4px; max-width: 360px; }
+.meter > div { height: 100%; background: currentColor; }
+.flag { display: inline-block; margin-top: 8px; font-size: 13px; padding: 2px 8px; border-radius: 5px;
+        border: 1px dashed var(--muted); color: var(--muted); }
+.cand { border: 1px solid var(--line); border-radius: 9px; margin-bottom: 10px; background: var(--panel); }
+.cand summary { list-style: none; cursor: pointer; padding: 12px 14px; display: grid;
+                grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; }
+.cand summary::-webkit-details-marker { display: none; }
+.score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 17px; text-align: right; }
+.score small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+.title { font-weight: 600; }
+.sub { font-size: 13px; color: var(--muted); }
+.badge { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px;
+         max-width: 130px; text-align: center; line-height: 1.3; }
+.r-repeat { color: var(--repeat); background: var(--repeat-bg); }
+.r-other_place { color: var(--other); background: var(--other-bg); }
+.r-similar { color: var(--similar); background: var(--similar-bg); }
+.r-alternative, .v-alternative { color: var(--alt); background: var(--alt-bg); }
+.badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.unsure { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.why { font-size: 13px; margin-top: 4px; color: var(--text); }
+.llm-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.external { margin-top: 8px; font-size: 12px; color: var(--repeat); }
+button.small { padding: 5px 12px; font-size: 13px; }
+.r-far { color: var(--far); background: var(--bg); }
+.details { padding: 0 14px 14px 90px; display: grid; gap: 10px; }
+@media (max-width: 600px) { .details { padding-left: 14px; } .cand summary { grid-template-columns: 52px 1fr; }
+                            .cand summary .badge { grid-column: 2; justify-self: start; } }
+.details h4 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.details p { margin: 0; white-space: pre-wrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Проверка ППУ на повторы</h1>
+  <span class="info" id="info">загрузка…</span>
+  <a class="info" href="/label" style="margin-left:auto; color: var(--accent)">разметка для калибровки</a>
+</header>
+<main>
+  <section class="panel">
+    <form id="form">
+      <label for="name">Наименование</label>
+      <input id="name" name="name" required minlength="3" autocomplete="off">
+      <label for="before">До улучшения <small>— в чём проблема</small></label>
+      <textarea id="before" name="before"></textarea>
+      <label for="after">После улучшения <small>— что стало</small></label>
+      <textarea id="after" name="after"></textarea>
+      <label for="proposal">Предложения <small>— что сделать</small></label>
+      <textarea id="proposal" name="proposal"></textarea>
+      <div class="actions">
+        <button type="submit" id="go">Проверить</button>
+        <button type="button" class="ghost" id="clear">Очистить</button>
+        <span class="hint">Ctrl+Enter</span>
+      </div>
+    </form>
+  </section>
+  <section id="out"><div class="panel empty">Заполните ППУ и нажмите «Проверить»</div></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const FIELDS = ["name", "before", "after", "proposal"];
+const RELATION = { repeat: "повтор", other_place: "другое подразделение",
+                   alternative: "та же проблема, другое решение", similar: "похоже", far: "далеко" };
+const PLACE = { same: "то же место", other: "другое место", unknown: "" };
+let queryHasPlace = false, llmAvailable = false, llmExternal = null, lastBody = null;
+const ENTITY = { workshops: "цех", sites: "участок", places: "", projects: "проект", models: "модель", inventory: "инв. №" };
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function chips(entities) {
+  const items = Object.entries(entities || {}).flatMap(([k, vs]) =>
+    vs.map((v) => `<span class="chip">${esc(ENTITY[k] ? ENTITY[k] + " " + v : v)}</span>`));
+  return items.length ? `<div class="chips">${items.join("")}</div>` : "";
+}
+
+function candidate(c) {
+  const t = c.texts || {};
+  const block = (title, text) => text ? `<div><h4>${title}</h4><p>${esc(text)}</p></div>` : "";
+  const placeNote = c.place === "unknown" && queryHasPlace && c.relation === "repeat"
+    ? "место в найденном не указано" : PLACE[c.place];
+  const sub = [c.id && "№ " + c.id, c.status || "без статуса", c.date_submitted,
+               c.effect ? "ЭЭ " + Number(c.effect).toLocaleString("ru-RU") : "", placeNote,
+               c.completeness === "name_only" ? "в реестре только название" : ""].filter(Boolean);
+  const body = block("До улучшения", t.before) + block("После улучшения", t.after)
+             + block("Предложения", t.proposal) + block("Результат", t.result) + chips(c.entities);
+  const llm = c.llm ? `<div class="why">LLM: ${esc(c.llm.why || RELATION[c.relation])}${
+    c.relation_vectors !== c.relation ? ` <span class="sub">(по векторам: ${RELATION[c.relation_vectors]})</span>` : ""}</div>` : "";
+  return `<details class="cand">
+    <summary>
+      <div class="score">${Math.round(c.score * 100)}<small>близость</small></div>
+      <div><div class="title">${esc(c.name)}</div><div class="sub">${esc(sub.join(" · "))}</div>${llm}</div>
+      <div class="badges"><span class="badge r-${c.relation}">${RELATION[c.relation]}</span>
+        ${c.uncertain ? '<span class="unsure">не уверен</span>' : ""}</div>
+    </summary>
+    <div class="details">${body || '<p class="sub">Описания нет — в реестре «См.вложение»</p>'}</div>
+  </details>`;
+}
+
+function render(res) {
+  const u = Math.round(res.uniqueness * 100);
+  const e = res.query.entities || {};
+  queryHasPlace = Boolean(e.workshops || e.sites || e.places);
+  const cands = res.candidates.map(candidate).join("");
+  $("#out").innerHTML = `
+    <div class="verdict v-${res.verdict}">
+      <h2>${esc(res.verdict_text)}</h2>
+      <div class="meter"><div style="width:${u}%"></div></div>
+      <div class="meta">Уникальность ${u}%${res.judged_by === "llm" ? " · уточнено LLM" : ""}</div>
+      ${res.needs_llm ? '<span class="flag">Спорный случай</span>' : ""}
+      ${llmAvailable && res.judged_by !== "llm" && res.candidates.length ? `
+        <div class="llm-row">
+          <button type="button" id="ask-llm" class="${res.needs_llm ? "" : "ghost"} small">Уточнить у LLM</button>
+          <button type="button" id="cancel-llm" class="ghost small" hidden>Отменить</button>
+          <span class="hint" id="llm-status">может занять до минуты</span>
+        </div>
+        ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}` : ""}
+    </div>
+    ${cands || '<div class="panel empty">Кандидатов нет</div>'}`;
+  $("#ask-llm")?.addEventListener("click", askLLM);
+}
+
+async function post(url, body, signal) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify(body), signal });
+  const data = await r.json();
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
+  return data;
+}
+
+async function check(ev) {
+  ev?.preventDefault();
+  if (!$("#form").reportValidity()) return;
+  lastBody = Object.fromEntries(FIELDS.map((f) => [f, $("#" + f).value.trim()]));
+  $("#go").disabled = true; $("#go").textContent = "Проверяю…";
+  try {
+    render(await post("/api/assess", lastBody));
+  } catch (e) {
+    $("#out").innerHTML = `<div class="error">Не удалось проверить: ${esc(e.message)}</div>`;
+  } finally {
+    $("#go").disabled = false; $("#go").textContent = "Проверить";
+  }
+}
+
+async function askLLM() {
+  const btn = $("#ask-llm"), cancel = $("#cancel-llm"), status = $("#llm-status"), started = Date.now();
+  // обрыв запроса браузером сервер замечает и останавливает генерацию в LLM
+  const ctrl = new AbortController();
+  cancel.hidden = false;
+  cancel.onclick = () => ctrl.abort();
+  btn.disabled = true; btn.textContent = "LLM читает…";
+  const timer = setInterval(() => (status.textContent = `${Math.round((Date.now() - started) / 1000)} с`), 1000);
+  try {
+    render(await post("/api/judge", lastBody, ctrl.signal));
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Уточнить у LLM";
+    cancel.hidden = true;
+    status.textContent = e.name === "AbortError" ? "отменено" : `не удалось: ${e.message}`;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+$("#form").addEventListener("submit", check);
+$("#form").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) check(e); });
+$("#clear").addEventListener("click", () => {
+  FIELDS.forEach((f) => ($("#" + f).value = ""));
+  $("#out").innerHTML = '<div class="panel empty">Заполните ППУ и нажмите «Проверить»</div>';
+  $("#name").focus();
+});
+fetch("/api/info").then((r) => r.json()).then((i) => {
+  llmAvailable = i.llm;
+  llmExternal = i.llm && !i.llm_local ? i.llm_host : null;
+  $("#info").textContent = `в реестре ${i.records.toLocaleString("ru-RU")} ППУ · индекс от ${(i.built || "").replace("T", " ")}`
+    + (i.llm ? "" : " · LLM не настроена");
+}).catch(() => ($("#info").textContent = "сервер недоступен"));
+</script>
+</body>
+</html>
