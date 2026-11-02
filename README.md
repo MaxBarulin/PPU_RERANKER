@@ -169,7 +169,7 @@ GGUF-файлы `bge-m3` и (для судьи) `Qwen3.6-35B-A3B`.
 6. По желанию запустить `start-judge.bat` — нужен для кнопки «Уточнить у LLM».
 7. Запустить `scripts\windows\start-web.bat` и открыть http://127.0.0.1:8000.
 
-На Linux-сервере — `scripts/linux/start.sh`, база загружается через браузер: см. [docs/linux-server.md](docs/linux-server.md).
+На Linux-сервере — `scripts/linux/start.sh`, база загружается через браузер: см. [docs/linux-server.md](docs/linux-server.md), пошагово — [docs/zavtra.md](docs/zavtra.md).
 
 ## Установка
 
