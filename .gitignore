@@ -1,0 +1,10 @@
+# данные и настройки — только локально, в git не попадают
+.env
+data/
+rrr/
+logs/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+nohup.out

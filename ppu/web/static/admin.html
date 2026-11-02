@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обновление базы ППУ</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+  --accent: #2f5bea; --accent-text: #fff;
+  --bad: #c2410c; --bad-bg: #fff1e8; --good: #15803d; --good-bg: #e9f8ee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b1f27; --text: #e6e8ec; --muted: #98a2b3; --line: #2c323d;
+    --accent: #6d8cff; --accent-text: #0d1117;
+    --bad: #fb923c; --bad-bg: #2d1c12; --good: #4ade80; --good-bg: #12291b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+         display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 18px; }
+header a { margin-left: auto; color: var(--accent); font-size: 13px; }
+main { max-width: 760px; margin: 0 auto; padding: 20px 16px; display: grid; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.panel h2 { margin: 0 0 10px; font-size: 16px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 6px; }
+input[type=file], input[type=password] { width: 100%; font: inherit; color: inherit; background: var(--bg);
+       border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+button { font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 9px 18px;
+         background: var(--accent); color: var(--accent-text); cursor: pointer; }
+button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.bar { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
+.bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.bar.busy > div { width: 30% !important; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+.error { color: var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 12px 14px; }
+.ok { color: var(--good); background: var(--good-bg); border-radius: 8px; padding: 12px 14px; }
+details summary { cursor: pointer; color: var(--accent); margin-top: 12px; }
+pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px solid var(--line);
+      border-radius: 7px; padding: 10px; max-height: 420px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Обновление базы ППУ</h1>
+  <a href="/">← к проверке ППУ</a>
+</header>
+<main>
+  <section class="panel">
+    <h2>Сейчас в базе</h2>
+    <dl id="current"><dt>Загрузка…</dt><dd></dd></dl>
+  </section>
+
+  <section class="panel">
+    <h2>Загрузить реестр</h2>
+    <form id="form">
+      <label for="file">Файл реестра Excel (.xlsx)</label>
+      <input type="file" id="file" accept=".xlsx,.xlsm" required>
+      <div id="token-row" hidden>
+        <label for="token">Пароль администратора</label>
+        <input type="password" id="token" autocomplete="current-password">
+      </div>
+      <div class="actions">
+        <button type="submit" id="upload">Загрузить и пересобрать</button>
+        <button type="button" class="ghost" id="rebuild" hidden>Пересобрать из последнего файла</button>
+      </div>
+      <p class="hint">Лист и колонки находятся сами: нужны «Наименование», «До улучшения»,
+        «После улучшения», «Предложения». Векторы уже посчитанных записей берутся из кэша —
+        считаются только новые и изменённые. Пока идёт сборка, проверка ППУ работает по старой базе.</p>
+    </form>
+  </section>
+
+  <section class="panel" id="job" hidden></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtTime = (s) => (s || "").replace("T", " ");
+let timer = null;
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : `ошибка ${r.status}`);
+  return data;
+}
+
+async function loadInfo() {
+  try {
+    const i = await api("/api/info");
+    $("#current").innerHTML = i.index
+      ? `<dt>Записей</dt><dd>${i.records.toLocaleString("ru-RU")}</dd>
+         <dt>Собрана</dt><dd>${esc(fmtTime(i.built))}</dd>
+         <dt>Из файла</dt><dd>${esc(i.source || "—")}</dd>
+         <dt>Модель векторов</dt><dd>${esc(i.embedding_model || "—")}</dd>`
+      : `<dt>Базы ещё нет</dt><dd>загрузите реестр ниже</dd>`;
+  } catch (e) {
+    $("#current").innerHTML = `<dt>Ошибка</dt><dd>${esc(e.message)}</dd>`;
+  }
+}
+
+function elapsed(from, to) {
+  const s = Math.max(0, Math.round(((to ? new Date(to) : new Date()) - new Date(from)) / 1000));
+  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
+}
+
+function renderJob(j) {
+  const box = $("#job");
+  const running = j.status === "running";
+  $("#upload").disabled = running;
+  $("#rebuild").disabled = running;
+  $("#rebuild").hidden = !j.registry;
+  if (j.registry) $("#rebuild").textContent = `Пересобрать из последнего файла (${j.registry})`;
+  $("#token-row").hidden = !j.token_required;
+  if (j.status === "idle") { box.hidden = true; return; }
+  box.hidden = false;
+  const pct = j.total ? Math.round((j.done / j.total) * 100) : null;
+  const head = `<h2>${running ? "Идёт сборка" : j.status === "done" ? "Сборка завершена" : "Сборка не удалась"}
+    ${j.source ? `<span class="hint">· ${esc(j.source)}</span>` : ""}</h2>`;
+  if (running) {
+    box.innerHTML = head + `
+      <div>${esc(j.stage)}${j.total ? ` — ${j.done.toLocaleString("ru-RU")} из ${j.total.toLocaleString("ru-RU")}` : ""}</div>
+      <div class="bar ${pct === null ? "busy" : ""}"><div style="width:${pct ?? 0}%"></div></div>
+      <div class="hint">идёт ${elapsed(j.started)} · страницу можно закрыть, сборка продолжится</div>`;
+  } else if (j.status === "done") {
+    box.innerHTML = head + `
+      <div class="ok">Готово: в базе ${Number(j.records).toLocaleString("ru-RU")} ППУ. Проверка уже работает по новой базе.</div>
+      <div class="hint">заняло ${elapsed(j.started, j.finished)}</div>
+      ${j.report ? `<details><summary>Отчёт о данных</summary><pre>${esc(j.report)}</pre></details>` : ""}`;
+  } else {
+    box.innerHTML = head + `
+      <div class="error">${esc(j.error)}</div>
+      <p class="hint">Если оборвалось на векторах — проверьте, что сервер эмбеддингов запущен
+        (EMB_BASE_URL в .env), и нажмите «Пересобрать»: посчитанное возьмётся из кэша.</p>`;
+  }
+}
+
+async function poll() {
+  clearTimeout(timer);
+  try {
+    const j = await api("/api/index/status");
+    renderJob(j);
+    if (j.status === "running") { timer = setTimeout(poll, 1500); return; }
+    if (j.status === "done") loadInfo();
+  } catch (e) {
+    timer = setTimeout(poll, 5000);  // веб перезапускается — попробуем ещё
+  }
+}
+
+function headers(extra = {}) {
+  const t = $("#token").value;
+  return t ? { ...extra, "X-Admin-Token": t } : extra;
+}
+
+$("#form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const file = $("#file").files[0];
+  if (!file) return;
+  const btn = $("#upload");
+  btn.disabled = true; btn.textContent = "Загружаю файл…";
+  try {
+    renderJob(await api(`/api/index/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST", body: file, headers: headers({ "Content-Type": "application/octet-stream" }) }));
+    poll();
+  } catch (e) {
+    $("#job").hidden = false;
+    $("#job").innerHTML = `<div class="error">Не удалось загрузить: ${esc(e.message)}</div>`;
+    btn.disabled = false;
+  } finally {
+    btn.textContent = "Загрузить и пересобрать";
+  }
+});
+
+$("#rebuild").addEventListener("click", async () => {
+  try {
+    renderJob(await api("/api/index/rebuild", { method: "POST", headers: headers() }));
+    poll();
+  } catch (e) {
+    $("#job").hidden = false;
+    $("#job").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+});
+
+loadInfo();
+poll();
+</script>
+</body>
+</html>
