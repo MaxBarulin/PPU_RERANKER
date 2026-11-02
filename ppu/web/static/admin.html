@@ -46,6 +46,20 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .error { color: var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 12px 14px; }
 .ok { color: var(--good); background: var(--good-bg); border-radius: 8px; padding: 12px 14px; }
 details summary { cursor: pointer; color: var(--accent); margin-top: 12px; }
+.steps { display: grid; gap: 14px; margin-top: 6px; }
+.step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.num { width: 26px; height: 26px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line);
+       display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--muted); }
+.step h3 { margin: 2px 0 4px; font-size: 15px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input[type=number] { width: 90px; font: inherit; color: inherit; background: var(--bg);
+       border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; }
+a.button { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 7px; padding: 9px 18px;
+           background: var(--accent); color: var(--accent-text); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); }
+button.link { background: none; border: 0; padding: 0; color: var(--muted); font-weight: 400;
+              text-decoration: underline; font-size: 13px; }
 pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px solid var(--line);
       border-radius: 7px; padding: 10px; max-height: 420px; overflow: auto; }
 </style>
@@ -81,6 +95,42 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
   </section>
 
   <section class="panel" id="job" hidden></section>
+
+  <section class="panel" id="calib">
+    <h2>Калибровка порогов</h2>
+    <p class="hint" style="margin-top:0">Пороги «повтор / похоже / уникально» по умолчанию подобраны на выдуманных ППУ.
+      Чтобы они подходили к вашему реестру, люди размечают пары похожих ППУ, а пороги подбираются по разметке.</p>
+    <div id="calib-status" class="hint">загрузка…</div>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><div>
+        <h3>Выбрать пары</h3>
+        <div class="row">
+          <input type="number" id="n-pairs" value="240" min="10" max="2000" step="10" aria-label="Сколько пар">
+          <button type="button" id="sample">Выбрать пары</button>
+          <button type="button" class="link" id="resample" hidden>выбрать заново</button>
+        </div>
+        <p class="hint">Пары — ППУ из реестра и их ближайшие соседи, поровну по степени похожести.
+          240 пар размечаются примерно за 40–60 минут. Можно добавлять ещё — сделанная разметка сохраняется.</p>
+        <div id="sample-job"></div>
+      </div></div>
+      <div class="step"><div class="num">2</div><div>
+        <h3>Разметить</h3>
+        <a class="button" href="/label" id="label-link">Размечать пары →</a>
+        <p class="hint">Можно прерываться и размечать вдвоём: метки сохраняются сразу.</p>
+      </div></div>
+      <div class="step"><div class="num">3</div><div>
+        <h3>Подобрать и применить пороги</h3>
+        <div class="row">
+          <button type="button" id="fit" class="ghost">Показать, что изменится</button>
+          <button type="button" id="apply">Применить пороги</button>
+          <button type="button" class="link" id="reset" hidden>вернуть пороги по умолчанию</button>
+        </div>
+        <p class="hint">Нужно хотя бы по 5 пар «повтор / то же, другое подразделение» и остальных.
+          Применённые пороги начинают работать со следующей проверки, перезапуск не нужен.</p>
+        <div id="fit-out"></div>
+      </div></div>
+    </div>
+  </section>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -192,8 +242,86 @@ $("#rebuild").addEventListener("click", async () => {
   }
 });
 
+// --- калибровка ---
+let calibTimer = null;
+
+async function loadCalib() {
+  clearTimeout(calibTimer);
+  try {
+    const c = await api("/api/calib/status");
+    const chips = Object.entries(c.by_label).map(([k, n]) =>
+      `<span class="chip">${esc(c.label_names[k] || k)}: ${n}</span>`).join("");
+    $("#calib-status").innerHTML = (c.pairs
+      ? `Выбрано пар: <b>${c.pairs}</b>, размечено: <b>${c.labeled}</b>`
+      : "Пары ещё не выбраны")
+      + `<br>Пороги сейчас: ${esc(c.thresholds.source)}`
+      + (chips ? `<div class="chips">${chips}</div>` : "");
+    $("#token-row").hidden = !c.token_required;
+    $("#sample").textContent = c.pairs ? "Добавить пары" : "Выбрать пары";
+    $("#resample").hidden = !c.pairs;
+    $("#reset").hidden = !c.thresholds.custom;
+    $("#label-link").hidden = !c.pairs;
+    const j = c.job, running = j.status === "running";
+    $("#sample").disabled = running;
+    $("#resample").disabled = running;
+    if (running) {
+      $("#sample-job").innerHTML = `<div class="bar"><div style="width:${j.total ? Math.round(100 * j.done / j.total) : 0}%"></div></div>
+        <div class="hint">${esc(j.stage)}${j.total ? ` — ${j.done} из ${j.total}` : ""}</div>`;
+      calibTimer = setTimeout(loadCalib, 1000);
+    } else if (j.status === "done") {
+      $("#sample-job").innerHTML = `<div class="ok">Выбрано пар: ${j.records}. Можно размечать.</div>`;
+    } else if (j.status === "error") {
+      $("#sample-job").innerHTML = `<div class="error">${esc(j.error)}</div>`;
+    }
+  } catch (e) {
+    $("#calib-status").textContent = e.message;
+  }
+}
+
+async function sample(append) {
+  if (!append && !confirm("Заменить выбранные пары новыми? Метки совпавших пар сохранятся, остальные перестанут учитываться.")) return;
+  try {
+    await api("/api/calib/sample", { method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ n_pairs: Number($("#n-pairs").value) || 240, append }) });
+  } catch (e) {
+    $("#sample-job").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+  loadCalib();
+}
+
+async function fit(apply) {
+  const btn = apply ? $("#apply") : $("#fit");
+  btn.disabled = true;
+  try {
+    const r = await api(apply ? "/api/calib/apply" : "/api/calib/fit", { method: "POST", headers: headers() });
+    $("#fit-out").innerHTML = (apply ? `<div class="ok">Пороги применены: ${esc(r.source)}</div>` : "")
+      + `<details ${apply ? "" : "open"}><summary>Отчёт о подборе</summary><pre>${esc(r.report)}</pre></details>`;
+  } catch (e) {
+    $("#fit-out").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    loadCalib();
+  }
+}
+
+$("#sample").addEventListener("click", () => sample(true));
+$("#resample").addEventListener("click", () => sample(false));
+$("#fit").addEventListener("click", () => fit(false));
+$("#apply").addEventListener("click", () => {
+  if (confirm("Применить подобранные пороги? Вернуть прежние можно кнопкой «вернуть пороги по умолчанию».")) fit(true);
+});
+$("#reset").addEventListener("click", async () => {
+  if (!confirm("Вернуть пороги по умолчанию (подобранные на выдуманных ППУ)?")) return;
+  try { await api("/api/calib/reset", { method: "POST", headers: headers() }); }
+  catch (e) { $("#fit-out").innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+  $("#fit-out").innerHTML = "";
+  loadCalib();
+});
+
 loadInfo();
 poll();
+loadCalib();
 </script>
 </body>
 </html>

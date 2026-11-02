@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import calibrate, config
-from ..assess import assess
+from ..assess import active_calibration, assess, thresholds_path
 from ..embed import Embedder
 from ..index import load_index
 from ..rebuild import Job, rebuild_from_excel
@@ -181,18 +181,19 @@ def label_pair(pair_id: str | None = None):
     pairs = calibrate.load_pairs(_calib_dir())
     if not pairs:
         raise HTTPException(status_code=404,
-                            detail="Пар нет — сначала: python -m ppu.calibrate sample")
+                            detail="Пар нет — выберите их на странице /admin, раздел «Калибровка порогов»")
+    by_id = _records_by_id()
+    # после обновления базы часть пар может ссылаться на исчезнувшие записи — пропускаем их
+    pairs = [p for p in pairs if p["a"] in by_id and p["b"] in by_id]
+    if not pairs:
+        raise HTTPException(status_code=409, detail="Пары выбраны по другой базе: "
+                            "на /admin нажмите «выбрать заново»")
     labels = calibrate.load_labels(_calib_dir())
     pair = next((p for p in pairs if p["pair_id"] == pair_id), None) if pair_id \
         else next((p for p in pairs if p["pair_id"] not in labels), None)
-    by_id = _records_by_id()
     progress = {"done": sum(p["pair_id"] in labels for p in pairs), "total": len(pairs)}
     if pair is None:
         return {"pair": None, "progress": progress}
-    missing = [x for x in (pair["a"], pair["b"]) if x not in by_id]
-    if missing:
-        raise HTTPException(status_code=409, detail=f"Записей {missing} нет в индексе — "
-                            "пары выбраны по другому индексу, выберите заново (sample --force)")
     return {"pair": {"pair_id": pair["pair_id"], "a": _record_view(by_id[pair["a"]]),
                      "b": _record_view(by_id[pair["b"]]), "label": labels.get(pair["pair_id"])},
             "progress": progress, "labels": calibrate.LABELS}
@@ -298,3 +299,79 @@ def index_rebuild(x_admin_token: str | None = Header(None)):
         raise HTTPException(status_code=404, detail="Реестр ещё не загружался")
     src = _source_file()
     return _start(path, src.read_text(encoding="utf-8") if src.exists() else path.name)
+
+
+# --- калибровка порогов из интерфейса: выбор пар → разметка (/label) → подбор → применение ---
+
+CALIB_JOB = Job()
+
+
+class SampleRequest(BaseModel):
+    n_pairs: int = Field(240, ge=10, le=2000)
+    append: bool = True
+
+
+@app.get("/api/calib/status")
+def calib_status():
+    pairs = calibrate.load_pairs(_calib_dir())
+    labels = calibrate.load_labels(_calib_dir())
+    ids = {p["pair_id"] for p in pairs}
+    by_label = {}
+    for pid, lab in labels.items():
+        if pid in ids:
+            by_label[lab] = by_label.get(lab, 0) + 1
+    path = thresholds_path()
+    return {"pairs": len(pairs), "labeled": sum(by_label.values()), "by_label": by_label,
+            "label_names": {**calibrate.LABELS, "unclear": "непонятно"},
+            "thresholds": {"custom": path.exists(), "source": active_calibration().source},
+            "token_required": bool(os.getenv("PPU_ADMIN_TOKEN")),
+            "job": CALIB_JOB.snapshot()}
+
+
+@app.post("/api/calib/sample")
+def calib_sample(req: SampleRequest, x_admin_token: str | None = Header(None)):
+    """Выбрать пары для разметки в фоне: добавить к уже выбранным или заменить их."""
+    _check_token(x_admin_token)
+    index, _ = engine()
+    if len(index) < 10:
+        raise HTTPException(status_code=422, detail="В базе слишком мало записей для калибровки")
+
+    def work(progress):
+        return calibrate.sample_to_dir(
+            index, _calib_dir(), req.n_pairs, append=req.append,
+            progress=lambda done, total: progress(stage="Поиск ближайших соседей",
+                                                  done=done, total=total))
+    if not CALIB_JOB.start(work, on_success=_records_by_id.cache_clear):
+        raise HTTPException(status_code=409, detail="Выбор пар уже идёт")
+    return CALIB_JOB.snapshot()
+
+
+@app.post("/api/calib/fit")
+def calib_fit(x_admin_token: str | None = Header(None)):
+    """Подобрать пороги по разметке и показать, что изменится. Ничего не применяет."""
+    _check_token(x_admin_token)
+    try:
+        _, text = calibrate.fit_from_dir(_calib_dir())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"report": text}
+
+
+@app.post("/api/calib/apply")
+def calib_apply(x_admin_token: str | None = Header(None)):
+    """Подобрать пороги и сразу применить: проверка ППУ начнёт их использовать со следующего запроса."""
+    _check_token(x_admin_token)
+    try:
+        fitted, text = calibrate.fit_from_dir(_calib_dir())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    calibrate.save_calibration(fitted)
+    return {"report": text, "source": fitted.source}
+
+
+@app.post("/api/calib/reset")
+def calib_reset(x_admin_token: str | None = Header(None)):
+    """Вернуть пороги по умолчанию (с синтетики). Разметка не удаляется."""
+    _check_token(x_admin_token)
+    thresholds_path().unlink(missing_ok=True)
+    return {"source": active_calibration().source}
