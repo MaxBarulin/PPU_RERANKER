@@ -5,6 +5,8 @@
     python -m ppu.calibrate fit               # 2. подобрать пороги по разметке
     python -m ppu.calibrate fit --write       #    ... и записать data/thresholds.json
 
+То же — из браузера: страница /admin, раздел «Калибровка порогов».
+
 Пары — запись реестра и её ближайший сосед по векторам. Все векторы уже
 лежат в индексе, поэтому выборка не обращается к моделям. Чтобы разметка
 покрыла всю зону, где принимается решение, пары берутся поровну из полос
@@ -18,11 +20,12 @@ import random
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
 from .assess import (DEFAULT_CALIBRATION, Calibration, Thresholds, active_calibration,
-                     relation)
+                     relation, thresholds_path)
 from .index import VIEWS, Index, load_index
 from .search import dense_scores, place_relation
 
@@ -60,19 +63,24 @@ def _one(index: Index, j: int) -> Index:
 
 
 def sample_pairs(index: Index, n_pairs: int, n_queries: int, seed: int,
-                 bins: tuple[float, ...] = BINS) -> tuple[list[dict], dict]:
+                 bins: tuple[float, ...] = BINS, exclude: frozenset[str] = frozenset(),
+                 progress: Callable[[int, int], None] | None = None) -> tuple[list[dict], dict]:
+    """exclude — pair_id уже выбранных пар (в любом порядке A~B / B~A), их не берём."""
     rng = random.Random(seed)
     n = len(index)
     queries = rng.sample(range(n), min(n_queries, n))
     pool, seen, near_identical = defaultdict(list), set(), 0
-    for i in queries:
+    for step, i in enumerate(queries):
+        if progress and step % 50 == 0:
+            progress(step, len(queries))
         q_vecs = {v: index.vectors[v][i] for v in VIEWS if index.masks[v][i]}
         dense, _, has = dense_scores(index, q_vecs)
         dense[i] = -1
         for j in np.argsort(-np.where(has, dense, -1))[:NEIGHBOURS]:
             j = int(j)
             key = (min(i, j), max(i, j))
-            if key in seen:
+            ida, idb = index.records[i]["id"], index.records[j]["id"]
+            if key in seen or f"{ida}~{idb}" in exclude or f"{idb}~{ida}" in exclude:
                 continue
             seen.add(key)
             d = float(dense[j])
@@ -94,6 +102,36 @@ def sample_pairs(index: Index, n_pairs: int, n_queries: int, seed: int,
              "near_identical_share": near_identical / max(len(seen), 1),
              "pool_by_band": {f"{bins[k]:.2f}": len(v) for k, v in sorted(pool.items())}}
     return pairs, stats
+
+
+def sample_to_dir(index: Index, calib_dir: Path = CALIB_DIR, n_pairs: int = 240,
+                  n_queries: int = 1500, seed: int | None = None, append: bool = False,
+                  progress: Callable[[int, int], None] | None = None) -> dict:
+    """Выбрать пары и записать pairs.jsonl.
+
+    append — добавить к уже выбранным (разметка сохраняется), иначе — заменить.
+    Метки хранятся отдельно по pair_id, поэтому и при замене не теряются:
+    совпавшие пары останутся размеченными.
+    """
+    existing = load_pairs(calib_dir) if append else []
+    if seed is None:
+        seed = random.randrange(10 ** 9) if existing else 7
+    pairs, stats = sample_pairs(index, n_pairs, n_queries, seed, progress=progress,
+                                exclude=frozenset(p["pair_id"] for p in existing))
+    calib_dir.mkdir(parents=True, exist_ok=True)
+    out = calib_dir / "pairs.jsonl"
+    tmp = out.with_name(out.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        for p in existing + pairs:
+            fh.write(json.dumps(p, ensure_ascii=False) + "\n")
+    tmp.replace(out)
+    text = "\n".join([
+        f"Запросов: {stats['queries']}, пар-соседей: {stats['candidate_pairs']}, "
+        f"почти одинаковых (dense ≥ 0.97): {stats['near_identical_share']:.1%}",
+        f"Пар-соседей по полосам близости: {stats['pool_by_band']}",
+        f"Выбрано для разметки: {len(pairs)}" + (f" (всего {len(existing) + len(pairs)})"
+                                                 if existing else "")])
+    return {"count": len(pairs), "total": len(existing) + len(pairs), "report": text}
 
 
 # --- разметка (её пишет веб-страница /label) ---
@@ -235,6 +273,31 @@ def report(rows: list[dict], current: Calibration, fitted: Calibration, notes: l
     return "\n".join(lines)
 
 
+def labeled_rows(calib_dir: Path = CALIB_DIR) -> list[dict]:
+    """Выбранные пары с метками; «непонятно» (unclear) в подбор не идёт."""
+    labels = load_labels(calib_dir)
+    return [{**p, "label": labels[p["pair_id"]]} for p in load_pairs(calib_dir)
+            if labels.get(p["pair_id"]) in LABELS]
+
+
+def fit_from_dir(calib_dir: Path = CALIB_DIR) -> tuple[Calibration, str]:
+    """Подобрать пороги по разметке; отчёт пишется в fit_report.txt."""
+    rows = labeled_rows(calib_dir)
+    if not rows:
+        raise ValueError("Нет размеченных пар — сначала выберите пары и разметьте их")
+    current = active_calibration()
+    fitted, notes = fit(rows, base=current)
+    text = report(rows, current, fitted, notes)
+    (calib_dir / "fit_report.txt").write_text(text, encoding="utf-8")
+    return fitted, text
+
+
+def save_calibration(cal: Calibration, path: Path | None = None):
+    path = path or thresholds_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _save_calibration(cal, path)
+
+
 def _save_calibration(cal: Calibration, path: Path):
     data = {"source": cal.source,
             "with_text": cal.with_text.__dict__, "name_only": cal.name_only.__dict__,
@@ -262,32 +325,19 @@ def main():
         out = args.dir / "pairs.jsonl"
         if out.exists() and not args.force:
             parser.error(f"{out} уже есть (и, может быть, размечен). --force, чтобы выбрать заново")
-        pairs, stats = sample_pairs(load_index(args.index), args.pairs, args.queries, args.seed)
-        args.dir.mkdir(parents=True, exist_ok=True)
-        with out.open("w", encoding="utf-8") as fh:
-            for p in pairs:
-                fh.write(json.dumps(p, ensure_ascii=False) + "\n")
-        print(f"Запросов: {stats['queries']}, пар-соседей: {stats['candidate_pairs']}, "
-              f"почти одинаковых (dense ≥ 0.97): {stats['near_identical_share']:.1%}")
-        print("Пар-соседей по полосам близости:", stats["pool_by_band"])
-        print(f"Выбрано для разметки: {len(pairs)} -> {out}")
+        res = sample_to_dir(load_index(args.index), args.dir, args.pairs, args.queries, args.seed)
+        print(res["report"], "->", out)
         print("Размечать: веб-интерфейс, страница /label")
         return
 
-    labels = load_labels(args.dir)
-    # «непонятно» (unclear) в подбор не идёт
-    rows = [{**p, "label": labels[p["pair_id"]]} for p in load_pairs(args.dir)
-            if labels.get(p["pair_id"]) in LABELS]
-    if not rows:
-        parser.error("нет размеченных пар — сначала sample и разметка на /label")
-    current = active_calibration()
-    fitted, notes = fit(rows, base=current)
-    text = report(rows, current, fitted, notes)
+    try:
+        fitted, text = fit_from_dir(args.dir)
+    except ValueError as e:
+        parser.error(str(e))
     print(text)
-    (args.dir / "fit_report.txt").write_text(text, encoding="utf-8")
     if args.write:
         _save_calibration(fitted, args.write)
-        print(f"\nПороги записаны: {args.write}. Перезапусти веб, чтобы он их подхватил.")
+        print(f"\nПороги записаны: {args.write}. Веб подхватит их со следующей проверки.")
 
 
 if __name__ == "__main__":

@@ -60,6 +60,7 @@ footer button:hover { border-color: var(--accent); }
   <h1>Разметка пар ППУ</h1>
   <span class="progress" id="progress">загрузка…</span>
   <a href="/">← к проверке ППУ</a>
+  <a href="/admin#calib">калибровка</a>
 </header>
 <div class="bar"><div id="bar" style="width:0"></div></div>
 <main id="main"></main>
@@ -102,7 +103,7 @@ function show(data) {
   current = data.pair;
   if (!current) {
     $("#main").innerHTML = `<div class="done"><h2>Все пары размечены</h2>
-      <p>Подобрать пороги: <code>python -m ppu.calibrate fit</code>, записать — <code>... fit --write</code></p></div>`;
+      <p><a href="/admin#calib">Подобрать и применить пороги</a> — или там же добавить ещё пар.</p></div>`;
   } else {
     $("#main").innerHTML = record(current.a, "ППУ A") + record(current.b, "ППУ B");
   }
@@ -115,6 +116,11 @@ async function load(pairId) {
   try {
     const r = await fetch("/api/label/pair" + (pairId ? `?pair_id=${encodeURIComponent(pairId)}` : ""));
     const data = await r.json();
+    if (r.status === 404) {
+      $("#main").innerHTML = `<div class="done"><h2>Пары для разметки ещё не выбраны</h2>
+        <p><a href="/admin#calib">Выбрать пары</a> на странице обновления базы.</p></div>`;
+      return;
+    }
     if (!r.ok) throw new Error(data.detail);
     show(data);
   } catch (e) {

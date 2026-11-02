@@ -79,8 +79,12 @@ def load_calibration(path: str | Path) -> Calibration:
     )
 
 
+def thresholds_path() -> Path:
+    return Path(os.getenv("PPU_THRESHOLDS", "data/thresholds.json"))
+
+
 def active_calibration() -> Calibration:
-    path = Path(os.getenv("PPU_THRESHOLDS", "data/thresholds.json"))
+    path = thresholds_path()
     return load_calibration(path) if path.exists() else DEFAULT_CALIBRATION
 
 RELATION_TEXT = {

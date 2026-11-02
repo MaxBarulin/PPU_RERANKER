@@ -89,3 +89,107 @@ def test_label_api(tmp_path, monkeypatch):
     assert c.get(f"/api/label/pair?pair_id={pid}").json()["pair"]["label"] == "repeat"
     assert c.post("/api/label", json={"pair_id": pid, "label": "чушь"}).status_code == 422
     web._records_by_id.cache_clear()
+
+
+# --- калибровка из интерфейса (/admin) ---
+
+OBJS = ["ручки напильников", "ящик шаблонов", "подставка паяльника", "лоток крепежа",
+        "тележка заготовок", "светильник станка"]
+PROBS = ["развалились и травмируют руки", "теряются на верстаке", "прожигают стол",
+         "долго искать нужный размер", "тяжело переносить вручную", "плохо видно разметку"]
+SOLS = ["изготовлены новые", "сделан ящик с ячейками", "установлена металлическая подставка",
+        "установлены поворотные лотки", "изготовлена тележка", "установлен светильник"]
+
+
+def big_index():
+    from test_search import rec
+    recs = []
+    for k in range(60):
+        i, j = k % 6, (k // 6) % 3
+        recs.append(rec(str(k), f"{OBJS[i]} цех {k % 5}", f"{OBJS[i]} {PROBS[(i + j) % 6]}",
+                        f"{SOLS[(i + j) % 6]} для {OBJS[i]}"))
+    return build_index(recs, fake_embed)
+
+
+def calib_client(tmp_path, monkeypatch, index):
+    monkeypatch.setenv("PPU_CALIB_DIR", str(tmp_path / "calib"))
+    monkeypatch.setenv("PPU_THRESHOLDS", str(tmp_path / "thresholds.json"))
+    monkeypatch.delenv("PPU_ADMIN_TOKEN", raising=False)
+    monkeypatch.setattr(web, "engine", lambda: (index, fake_embed))
+    monkeypatch.setattr(web, "CALIB_JOB", web.Job())
+    web._records_by_id.cache_clear()
+    return TestClient(web.app)
+
+
+def wait_calib(c):
+    import time
+    for _ in range(200):
+        s = c.get("/api/calib/status").json()
+        if s["job"]["status"] != "running":
+            return s
+        time.sleep(0.05)
+    raise AssertionError("выбор пар не закончился")
+
+
+def test_sample_to_dir_append_keeps_existing(tmp_path):
+    index = big_index()
+    first = calibrate.sample_to_dir(index, tmp_path, n_pairs=16, n_queries=60)
+    before = calibrate.load_pairs(tmp_path)
+    assert first["count"] == len(before) > 0
+    second = calibrate.sample_to_dir(index, tmp_path, n_pairs=40, n_queries=60, append=True)
+    after = calibrate.load_pairs(tmp_path)
+    assert after[:len(before)] == before and second["total"] == len(after)
+    keys = [frozenset((p["a"], p["b"])) for p in after]
+    assert len(keys) == len(set(keys))  # без повторов, в том числе A~B / B~A
+
+
+def test_calibration_via_web(tmp_path, monkeypatch):
+    index = big_index()
+    c = calib_client(tmp_path, monkeypatch, index)
+    s = c.get("/api/calib/status").json()
+    assert s["pairs"] == 0 and not s["thresholds"]["custom"]
+    assert c.get("/api/label/pair").status_code == 404
+    assert c.post("/api/calib/fit").status_code == 422  # разметки ещё нет
+
+    assert c.post("/api/calib/sample", json={"n_pairs": 40, "append": True}).status_code == 200
+    s = wait_calib(c)
+    assert s["job"]["status"] == "done" and s["pairs"] > 0
+
+    # размечаем: близкие — повтор, дальние — не связаны
+    for p in calibrate.load_pairs(tmp_path / "calib"):
+        lab = "repeat" if p["dense"] >= 0.8 else "different"
+        assert c.post("/api/label", json={"pair_id": p["pair_id"], "label": lab}).status_code == 200
+    s = c.get("/api/calib/status").json()
+    assert s["labeled"] == s["pairs"] and set(s["by_label"]) <= {"repeat", "different"}
+
+    report = c.post("/api/calib/fit").json()["report"]
+    assert "Подобрано" in report and not (tmp_path / "thresholds.json").exists()
+    r = c.post("/api/calib/apply").json()
+    assert "разметка" in r["source"] and (tmp_path / "thresholds.json").exists()
+    assert c.post("/api/assess", json={"name": "ручки напильников"}).json()["calibration"] == r["source"]
+
+    assert c.post("/api/calib/reset").json()["source"] == DEFAULT_CALIBRATION.source
+    assert not c.get("/api/calib/status").json()["thresholds"]["custom"]
+    web._records_by_id.cache_clear()
+
+
+def test_calibration_token(tmp_path, monkeypatch):
+    c = calib_client(tmp_path, monkeypatch, big_index())
+    monkeypatch.setenv("PPU_ADMIN_TOKEN", "t")
+    assert c.post("/api/calib/sample", json={"n_pairs": 20}).status_code == 403
+    assert c.post("/api/calib/apply").status_code == 403
+    assert c.post("/api/calib/reset", headers={"X-Admin-Token": "t"}).status_code == 200
+    web._records_by_id.cache_clear()
+
+
+def test_label_skips_pairs_from_old_base(tmp_path, monkeypatch):
+    index = big_index()
+    c = calib_client(tmp_path, monkeypatch, index)
+    calibrate.sample_to_dir(index, tmp_path / "calib", n_pairs=16, n_queries=60)
+    pairs = calibrate.load_pairs(tmp_path / "calib")
+    stale = {"pair_id": "старая~запись", "a": "старая", "b": "запись"}
+    (tmp_path / "calib" / "pairs.jsonl").write_text(
+        "\n".join(json.dumps(p, ensure_ascii=False) for p in [stale] + pairs), encoding="utf-8")
+    r = c.get("/api/label/pair").json()
+    assert r["pair"]["pair_id"] != stale["pair_id"] and r["progress"]["total"] == len(pairs)
+    web._records_by_id.cache_clear()
