@@ -85,13 +85,12 @@ def load_index(index_dir: str | Path) -> Index:
     src = Path(index_dir)
     with (src / "records.jsonl").open(encoding="utf-8") as f:
         records = [json.loads(line) for line in f]
-    data = np.load(src / "vectors.npz")
+    # файл закрываем сразу: иначе на Windows папку индекса нельзя заменить при пересборке
+    with np.load(src / "vectors.npz") as data:
+        vectors = {v: data[v] for v in VIEWS}
+        masks = {v: data[f"{v}_mask"] for v in VIEWS}
     meta = json.loads((src / "meta.json").read_text(encoding="utf-8"))
-    return Index(records,
-                 {v: data[v] for v in VIEWS},
-                 {v: data[f"{v}_mask"] for v in VIEWS},
-                 BM25([r["lemmas"] for r in records]),
-                 meta)
+    return Index(records, vectors, masks, BM25([r["lemmas"] for r in records]), meta)
 
 
 def main():

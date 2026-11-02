@@ -8,7 +8,9 @@
 import hashlib
 import sqlite3
 import sys
+import threading
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from openai import OpenAI
@@ -35,9 +37,12 @@ class Embedder:
         self._client = OpenAI(base_url=endpoint.base_url, api_key=endpoint.api_key,
                               timeout=600)
         self._db = None
+        # веб вызывает эмбеддер из разных потоков, а пересборка индекса пишет
+        # в тот же файл кэша из своего — отсюда общий замок и ожидание блокировки
+        self._lock = threading.Lock()
         if cache_path:
             Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-            self._db = sqlite3.connect(cache_path)
+            self._db = sqlite3.connect(cache_path, check_same_thread=False, timeout=60)
             self._db.execute("CREATE TABLE IF NOT EXISTS emb (key TEXT PRIMARY KEY, vec BLOB)")
 
     def _key(self, text: str) -> str:
@@ -47,12 +52,13 @@ class Embedder:
         if not self._db:
             return {}
         found = {}
-        for i in range(0, len(keys), 500):
-            chunk = keys[i:i + 500]
-            rows = self._db.execute(
-                f"SELECT key, vec FROM emb WHERE key IN ({','.join('?' * len(chunk))})", chunk
-            )
-            found.update((k, np.frombuffer(v, dtype=np.float32)) for k, v in rows)
+        with self._lock:
+            for i in range(0, len(keys), 500):
+                chunk = keys[i:i + 500]
+                rows = self._db.execute(
+                    f"SELECT key, vec FROM emb WHERE key IN ({','.join('?' * len(chunk))})", chunk
+                )
+                found.update((k, np.frombuffer(v, dtype=np.float32)) for k, v in rows)
         return found
 
     def _request(self, texts: list[str]) -> np.ndarray:
@@ -60,24 +66,35 @@ class Embedder:
         data = sorted(resp.data, key=lambda d: d.index)
         return _normalize(np.array([d.embedding for d in data], dtype=np.float32))
 
-    def __call__(self, texts: list[str], progress: bool = False) -> np.ndarray:
-        """Нормированные векторы (косинус = скалярное произведение)."""
+    def __call__(self, texts: list[str],
+                 progress: bool | Callable[[int, int], None] = False) -> np.ndarray:
+        """Нормированные векторы (косинус = скалярное произведение).
+
+        progress: True — печатать ход в stderr; функция (готово, всего) —
+        вызывается после каждого пакета, взятые из кэша считаются готовыми.
+        """
         texts = [t[:MAX_CHARS] for t in texts]
         keys = [self._key(t) for t in texts]
         vecs = self._cached(keys)
         todo = list(dict.fromkeys(k for k in keys if k not in vecs))
         text_by_key = dict(zip(keys, texts))
+        total = len(text_by_key)
+        if callable(progress):
+            progress(total - len(todo), total)
         for i in range(0, len(todo), self.batch_size):
             batch = todo[i:i + self.batch_size]
             out = self._request([text_by_key[k] for k in batch])
             vecs.update(zip(batch, out))
             if self._db:
-                self._db.executemany("INSERT OR REPLACE INTO emb VALUES (?, ?)",
-                                     [(k, v.tobytes()) for k, v in zip(batch, out)])
-                self._db.commit()
-            if progress:
-                print(f"\r  эмбеддинги: {min(i + self.batch_size, len(todo))}/{len(todo)}",
-                      end="", file=sys.stderr, flush=True)
-        if progress and todo:
+                with self._lock:
+                    self._db.executemany("INSERT OR REPLACE INTO emb VALUES (?, ?)",
+                                         [(k, v.tobytes()) for k, v in zip(batch, out)])
+                    self._db.commit()
+            done = min(i + self.batch_size, len(todo))
+            if callable(progress):
+                progress(total - len(todo) + done, total)
+            elif progress:
+                print(f"\r  эмбеддинги: {done}/{len(todo)}", end="", file=sys.stderr, flush=True)
+        if progress is True and todo:
             print(file=sys.stderr)
         return np.stack([vecs[k] for k in keys]) if keys else np.zeros((0, 0), np.float32)

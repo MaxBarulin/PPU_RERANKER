@@ -98,7 +98,8 @@ button.small { padding: 5px 12px; font-size: 13px; }
 <header>
   <h1>Проверка ППУ на повторы</h1>
   <span class="info" id="info">загрузка…</span>
-  <a class="info" href="/label" style="margin-left:auto; color: var(--accent)">разметка для калибровки</a>
+  <a class="info" href="/admin" style="margin-left:auto; color: var(--accent)">обновить базу</a>
+  <a class="info" href="/label" style="color: var(--accent)">разметка для калибровки</a>
 </header>
 <main>
   <section class="panel">
@@ -235,7 +236,13 @@ $("#clear").addEventListener("click", () => {
 fetch("/api/info").then((r) => r.json()).then((i) => {
   llmAvailable = i.llm;
   llmExternal = i.llm && !i.llm_local ? i.llm_host : null;
+  if (!i.index) {
+    $("#info").textContent = "база ещё не загружена";
+    $("#out").innerHTML = '<div class="panel empty">Базы ППУ ещё нет — <a href="/admin">загрузите реестр</a></div>';
+    return;
+  }
   $("#info").textContent = `в реестре ${i.records.toLocaleString("ru-RU")} ППУ · индекс от ${(i.built || "").replace("T", " ")}`
+    + (i.rebuild === "running" ? " · идёт обновление базы" : "")
     + (i.llm ? "" : " · LLM не настроена");
 }).catch(() => ($("#info").textContent = "сервер недоступен"));
 </script>
