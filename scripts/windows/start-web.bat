@@ -12,12 +12,13 @@ set PYTHONIOENCODING=utf-8
 
 cd /d "%ROOT%"
 if not exist data\index\meta.json (
-    echo [ОШИБКА] Нет индекса data\index — сначала build-index.bat
-    pause & exit /b 1
+    echo Индекса ещё нет — загрузите реестр в браузере: http://%HOST%:%PORT%/admin
+    echo.
 )
 
 echo ============================================
-echo  Проверка ППУ:  http://%HOST%:%PORT%
+echo  Проверка ППУ:     http://%HOST%:%PORT%
+echo  Обновление базы:  http://%HOST%:%PORT%/admin
 echo  Нужны: сервер эмбеддингов; для кнопки «Уточнить у LLM» — сервер судьи
 echo  Для остановки: Ctrl+C
 echo ============================================
