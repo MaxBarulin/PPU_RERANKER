@@ -40,5 +40,8 @@ cd /d "%LLAMA_DIR%"
 llama-server.exe -m "%MODEL%" --reranking -ngl %NGL% -t %THREADS% -c %CTX% -b %CTX% -ub %CTX% -np 1 --no-mmap --host %HOST% --port %PORT%
 
 echo.
-echo Сервер остановлен.
+echo Сервер остановлен. Код выхода: %errorlevel%
+if "%errorlevel%"=="-1073741795" echo  - процессор не поддерживает инструкции этой сборки (AVX/AVX2^). Скачай сборку win-cpu-x64.
+if "%errorlevel%"=="-1073741515" echo  - не хватает DLL: распакуй архив llama.cpp целиком; для CUDA-сборки нужны ещё cudart-DLL. Без видеокарты — сборка win-cpu-x64.
+echo Причина обычно написана в строках выше (error / failed / out of memory^).
 pause
