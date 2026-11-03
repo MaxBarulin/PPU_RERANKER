@@ -289,6 +289,10 @@ venv\Scripts\python -m ppu.index data\registry_clean.jsonl --out data\index
 
 Оба шага одной командой: `python -m ppu.rebuild "Реестр ППУ.xlsx"`.
 
+**Из базы данных (MS SQL)** — вместо Excel: настройки `DB_*` в `.env`, проверка
+`python -m ppu.db --check`, на `/admin` — «Обновить из базы». Подробно —
+[docs/linux-server.md](docs/linux-server.md#реестр-из-базы-данных-ms-sql).
+
 ## Веб-интерфейс
 
 ```bat

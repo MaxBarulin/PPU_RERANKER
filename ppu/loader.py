@@ -5,6 +5,7 @@
 """
 import re
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import openpyxl
@@ -35,7 +36,9 @@ def _norm_header(value) -> str:
 
 def _match_columns(header_row) -> dict[str, int]:
     """Канонические поля -> индекс колонки."""
-    lookup = {alias: field for field, aliases in COLUMNS.items() for alias in aliases}
+    # канонические имена тоже подходят: в SQL-запросе можно написать AS reg_no, AS name …
+    lookup = {field: field for field in COLUMNS}
+    lookup.update({alias: field for field, aliases in COLUMNS.items() for alias in aliases})
     mapping = {}
     for idx, cell in enumerate(header_row):
         field = lookup.get(_norm_header(cell))
@@ -62,7 +65,36 @@ def _convert(value):
     if isinstance(value, str):
         value = value.strip()
         return value or None
+    if isinstance(value, Decimal):  # деньги из MS SQL (money/decimal)
+        return int(value) if value == value.to_integral_value() else float(value)
     return value
+
+
+def records_from_rows(header, rows, first_row: int = 1, id_prefix: str = "row",
+                      sheet: str | None = None, mapping: dict[str, int] | None = None) -> list[dict]:
+    """Строки таблицы (Excel или SQL) -> записи с каноническими полями.
+
+    `id` — регистрационный номер, а если его нет — `<id_prefix><номер строки>`.
+    """
+    mapping = mapping if mapping is not None else _match_columns(header)
+    missing = [f for f in REQUIRED if f not in mapping]
+    if missing:
+        raise ValueError(f"Нет колонок: {', '.join(missing)}")
+    records = []
+    for row_idx, row in enumerate(rows, start=first_row):
+        rec = {field: _convert(row[idx]) if idx < len(row) else None
+               for field, idx in mapping.items()}
+        if not any(rec.get(f) for f in REQUIRED):
+            continue
+        reg_no = rec.get("reg_no")
+        if isinstance(reg_no, float) and reg_no.is_integer():
+            reg_no = rec["reg_no"] = int(reg_no)
+        rec["id"] = str(reg_no) if reg_no is not None else f"{id_prefix}{row_idx}"
+        if sheet is not None:
+            rec["sheet"] = sheet
+        rec["row"] = row_idx
+        records.append(rec)
+    return records
 
 
 def load_registry(path: str | Path) -> list[dict]:
@@ -74,21 +106,7 @@ def load_registry(path: str | Path) -> list[dict]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws, header_row, mapping = _find_table(wb)
-        records = []
-        for row_idx, row in enumerate(
-            ws.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1
-        ):
-            rec = {field: _convert(row[idx]) if idx < len(row) else None
-                   for field, idx in mapping.items()}
-            if not any(rec.get(f) for f in REQUIRED):
-                continue
-            reg_no = rec.get("reg_no")
-            if isinstance(reg_no, float) and reg_no.is_integer():
-                reg_no = rec["reg_no"] = int(reg_no)
-            rec["id"] = str(reg_no) if reg_no is not None else f"row{row_idx}"
-            rec["sheet"] = ws.title
-            rec["row"] = row_idx
-            records.append(rec)
-        return records
+        return records_from_rows(None, ws.iter_rows(min_row=header_row + 1, values_only=True),
+                                 first_row=header_row + 1, sheet=ws.title, mapping=mapping)
     finally:
         wb.close()

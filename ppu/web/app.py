@@ -20,7 +20,8 @@ from .. import calibrate, config
 from ..assess import active_calibration, assess, thresholds_path
 from ..embed import Embedder
 from ..index import load_index
-from ..rebuild import Job, rebuild_from_excel
+from .. import db
+from ..rebuild import Job, rebuild_from_db, rebuild_from_excel
 from ..judge import Judge
 from ..lexical import lemmas
 from ..llm import LLM, CancelToken, LLMCancelled, LLMError, is_local
@@ -377,7 +378,8 @@ def index_status():
     reg, src = _registry_path(), _source_file()
     name = (src.read_text(encoding="utf-8") if src.exists() else reg.name) if reg.exists() else None
     return {**JOB.snapshot(), "token_required": bool(os.getenv("PPU_ADMIN_TOKEN")),
-            "registry": name}
+            "registry": name,
+            "db": {"configured": db.configured(), "target": db.describe() if db.configured() else None}}
 
 
 @app.post("/api/index/upload", dependencies=ADMIN)
@@ -409,6 +411,28 @@ async def index_upload(request: Request, filename: str = "registry.xlsx"):
         part.replace(target)
         _source_file().write_text(name, encoding="utf-8")
         return _start(target, name)
+
+
+@app.post("/api/db/check", dependencies=ADMIN)
+def db_check():
+    """Подключиться к базе и показать, узнаются ли колонки. Ничего не меняет."""
+    try:
+        return db.check()
+    except db.DBError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/api/index/rebuild-db", dependencies=ADMIN)
+def index_rebuild_db():
+    """Пересобрать индекс из базы данных (вместо Excel)."""
+    if not db.configured():
+        raise HTTPException(status_code=422, detail="База не настроена: DB_* в .env")
+
+    def work(progress):
+        return rebuild_from_db(_index_dir(), _cache_path(), progress)
+    if not JOB.start(work, on_success=_reload, source=f"база данных {db.describe()}"):
+        raise HTTPException(status_code=409, detail="Сборка индекса уже идёт")
+    return JOB.snapshot()
 
 
 @app.post("/api/index/rebuild", dependencies=ADMIN)
