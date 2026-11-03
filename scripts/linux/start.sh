@@ -10,6 +10,9 @@ cd "$(dirname "$0")/../.."
 mkdir -p logs data
 PIDFILE=logs/web.pid
 
+# PID из файла может после перезагрузки достаться другому процессу — сверяем команду
+running() { [ -f "$PIDFILE" ] && ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null | grep -q "ppu.web"; }
+
 env_get() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true; }
 
 if [ ! -x venv/bin/python ]; then
@@ -26,7 +29,7 @@ fi
 PORT=$(env_get PPU_PORT); PORT=${PORT:-8010}
 HOST=$(env_get PPU_HOST); HOST=${HOST:-0.0.0.0}
 
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+if running; then
   echo "Уже запущен (PID $(cat "$PIDFILE")). Перезапуск: scripts/linux/stop.sh && scripts/linux/start.sh"
   exit 0
 fi
@@ -47,7 +50,7 @@ check "LLM-судья " "$(env_get LLM_BASE_URL)"
 nohup venv/bin/python -m ppu.web --host "$HOST" --port "$PORT" >> logs/web.log 2>&1 &
 echo $! > "$PIDFILE"
 sleep 3
-if ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+if ! running; then
   echo "[ОШИБКА] Веб не запустился. Последние строки logs/web.log:"
   tail -20 logs/web.log
   rm -f "$PIDFILE"
