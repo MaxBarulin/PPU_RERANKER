@@ -174,11 +174,23 @@ def test_calibration_via_web(tmp_path, monkeypatch):
 
 
 def test_calibration_token(tmp_path, monkeypatch):
-    c = calib_client(tmp_path, monkeypatch, big_index())
+    index = big_index()
+    c = calib_client(tmp_path, monkeypatch, index)
+    calibrate.sample_to_dir(index, tmp_path / "calib", n_pairs=16, n_queries=60)
     monkeypatch.setenv("PPU_ADMIN_TOKEN", "t")
+    ok = {"X-Admin-Token": "t"}
+    for method, url in [("get", "/api/calib/status"), ("post", "/api/calib/fit"),
+                        ("post", "/api/calib/apply"), ("post", "/api/calib/reset"),
+                        ("post", "/api/calib/llm"), ("post", "/api/calib/llm/stop"),
+                        ("get", "/api/label/pair")]:
+        assert getattr(c, method)(url).status_code == 403, url
     assert c.post("/api/calib/sample", json={"n_pairs": 20}).status_code == 403
-    assert c.post("/api/calib/apply").status_code == 403
-    assert c.post("/api/calib/reset", headers={"X-Admin-Token": "t"}).status_code == 200
+    pid = calibrate.load_pairs(tmp_path / "calib")[0]["pair_id"]
+    assert c.post("/api/label", json={"pair_id": pid, "label": "repeat"}).status_code == 403
+    assert calibrate.load_labels(tmp_path / "calib") == {}  # без пароля ничего не записалось
+    assert c.get("/api/label/pair", headers=ok).status_code == 200
+    assert c.post("/api/label", json={"pair_id": pid, "label": "repeat"}, headers=ok).status_code == 200
+    assert c.post("/api/calib/reset", headers=ok).status_code == 200
     web._records_by_id.cache_clear()
 
 
