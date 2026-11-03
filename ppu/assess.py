@@ -25,7 +25,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .index import EmbedFn, Index, load_index, view_texts
-from .judge import MAX_CANDIDATES
 from .lexical import lemmas
 from .search import make_query, search
 
@@ -144,7 +143,9 @@ def _verdict(cands: list[dict]) -> str:
 
 def _apply_judge(res: dict, query: dict, judge, by_id: dict) -> None:
     """Переоценивает верхних кандидатов LLM-судьёй и пересчитывает вердикт."""
-    to_judge = res["candidates"][:MAX_CANDIDATES]
+    # все карточки основного списка (похожие по смыслу; если таких нет — первые по поиску);
+    # «Показать ещё» не проверяем
+    to_judge = res["candidates"]
     verdicts = judge(query, [dict(c, record=by_id[c["id"]]) for c in to_judge])
     judged = []
     for c in to_judge:

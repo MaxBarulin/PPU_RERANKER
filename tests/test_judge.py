@@ -32,10 +32,19 @@ def test_judge_maps_codes_and_drops_unknown_ids():
     assert "[3] Контейнер для хранения шаблонов (в реестре только название)" in llm.calls[0]
 
 
-def test_prompt_puts_new_ppu_first_and_truncates():
+def test_prompt_keeps_new_ppu_whole_and_truncates_candidates():
     q = make_query("Ручки", before="очень " * 1000)
-    prompt = build_prompt(q, [cand("1")])
-    assert prompt.startswith("НОВОЕ: Ручки") and "…" in prompt and len(prompt) < 2500
+    long_rec = dict(cand("1")["record"], before_norm="длинно " * 500)
+    prompt = build_prompt(q, [{"id": "1", "completeness": "full", "record": long_rec}])
+    assert prompt.startswith("НОВОЕ: Ручки") and prompt.count("очень") == 1000  # новое ППУ целиком
+    assert "…" in prompt.split("РЕЕСТР:")[1]  # кандидат обрезан
+
+
+def test_judge_checks_all_candidates_in_batches():
+    llm = FakeLLM({"items": [{"id": i, "v": "sim"} for i in ("1", "2", "3", "4")]})
+    ids = ["1", "2", "3", "4", "1", "2"]  # 6 кандидатов → 2 запроса
+    out = Judge(llm)(make_query("Ручки"), [cand(i) for i in ids])
+    assert len(llm.calls) == 2 and set(out) == {"1", "2", "3", "4"}
 
 
 def test_assess_with_judge_overrides_vectors():

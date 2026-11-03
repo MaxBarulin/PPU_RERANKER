@@ -2,21 +2,22 @@
 
 Векторы уверенно ловят повторы у записей с описанием, но у записей
 «только название» и у пар «та же проблема / другое решение» ошибаются.
-Такие случаи (needs_llm) отдаём LLM: она читает новое ППУ и 3–4 кандидата
+Такие случаи (needs_llm) отдаём LLM: она читает новое ППУ и кандидатов
 и для каждого говорит, что это за связь.
 
-Рассчитано на рабочий CPU (~10 т/с):
-- постоянная часть промпта (правила и пример) идёт первой — llama-server
-  кэширует её между запросами, считать заново приходится только ППУ;
-- тексты обрезаны, кандидатов немного;
+- новое ППУ уходит целиком, тексты кандидатов — до MAX_CAND_CHARS;
+- кандидаты идут пачками по BATCH в одном запросе: постоянная часть промпта
+  (правила, пример, новое ППУ) идёт первой — llama-server кэширует её между
+  пачками, заново считаются только кандидаты;
 - ответ — короткие коды, пояснение — несколько слов.
 """
 from .index import view_texts
 from .llm import LLM, CancelToken
 
-MAX_QUERY_CHARS = 1200
+MAX_QUERY_CHARS = None  # новое ППУ — целиком, как написали
 MAX_CAND_CHARS = 600
-MAX_CANDIDATES = 4
+BATCH = 4  # кандидатов в одном запросе к LLM (больше — длиннее ответ и промпт)
+MAX_CANDIDATES = BATCH  # для разметки пар в калибровке
 
 # Код ответа LLM -> связь из assess
 CODES = {
@@ -51,10 +52,10 @@ SYSTEM = """Ты эксперт комиссии по предложениям �
 {"id": "A3", "v": "sim", "why": "тот же пост, другая проблема"}]}"""
 
 
-def _ppu_text(rec: dict, limit: int) -> str:
+def _ppu_text(rec: dict, limit: int | None) -> str:
     t = view_texts(rec)
     text = t["full"].replace("\n", ". ")
-    if len(text) > limit:
+    if limit and len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + "…"
     return text
 
@@ -75,17 +76,26 @@ class Judge:
 
     def __call__(self, query: dict, candidates: list[dict],
                  token: CancelToken | None = None) -> dict[str, dict]:
-        """id кандидата -> {"relation", "code", "why"}. Кандидат — элемент assess с полем record."""
-        candidates = candidates[:MAX_CANDIDATES]
-        if not candidates:
-            return {}
-        data = self.llm.json(SYSTEM, build_prompt(query, candidates),
-                             temperature=0.0, max_tokens=self.max_tokens, token=token)
-        items = data.get("items", []) if isinstance(data, dict) else data
-        known = {c["id"] for c in candidates}
-        out = {}
-        for it in items:
-            cid, code = str(it.get("id", "")), str(it.get("v", "")).strip().lower()
-            if cid in known and code in CODES:
-                out[cid] = {"relation": CODES[code], "code": code, "why": str(it.get("why", ""))[:120]}
+        """id кандидата -> {"relation", "code", "why"}. Кандидат — элемент assess с полем record.
+
+        Проверяются все переданные кандидаты — пачками по BATCH.
+        """
+        out, usage = {}, {"prompt_tokens": 0, "completion_tokens": 0, "answer_chars": 0, "calls": 0}
+        for k in range(0, len(candidates), BATCH):
+            batch = candidates[k:k + BATCH]
+            data = self.llm.json(SYSTEM, build_prompt(query, batch),
+                                 temperature=0.0, max_tokens=self.max_tokens, token=token)
+            items = data.get("items", []) if isinstance(data, dict) else data
+            known = {c["id"] for c in batch}
+            for it in items:
+                cid, code = str(it.get("id", "")), str(it.get("v", "")).strip().lower()
+                if cid in known and code in CODES:
+                    out[cid] = {"relation": CODES[code], "code": code,
+                                "why": str(it.get("why", ""))[:120]}
+            last = getattr(self.llm, "last_usage", None) or {}
+            for key in ("prompt_tokens", "completion_tokens", "answer_chars"):
+                usage[key] += last.get(key) or 0
+            usage["calls"] += 1
+        if usage["calls"] and hasattr(self.llm, "last_usage"):
+            self.llm.last_usage = usage  # расход за все пачки — для ppu.evaluate
         return out

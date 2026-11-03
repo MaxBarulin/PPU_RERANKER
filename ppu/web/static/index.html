@@ -208,7 +208,7 @@ function render(res) {
         <div class="llm-row">
           <button type="button" id="ask-llm" class="${res.needs_llm ? "" : "ghost"} small">Проверить подробнее</button>
           <button type="button" id="cancel-llm" class="ghost small" hidden>Отменить</button>
-          <span class="hint" id="llm-status">медленнее, до минуты: сервис внимательно перечитает тексты</span>
+          <span class="hint" id="llm-status">медленнее: сервис внимательно перечитает ${res.candidates.length === 1 ? "найденное ППУ" : `все ${res.candidates.length} ППУ из списка`}</span>
         </div>
         ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}` : ""}
     </div>
