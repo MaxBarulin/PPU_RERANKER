@@ -61,3 +61,22 @@ def test_cancel_stops_reading_and_closes_stream(monkeypatch):
 def test_is_local():
     assert is_local("http://127.0.0.1:8080/v1") and is_local("http://localhost:8081/v1")
     assert not is_local("https://api.polza.ai/api/v1")
+
+
+def test_extra_body_merges_with_no_thinking(monkeypatch):
+    import pytest
+    from ppu.config import Endpoint
+    from ppu.llm import LLM, NO_THINKING
+    ep = Endpoint("http://127.0.0.1:1/v1", "none", "m")
+    monkeypatch.delenv("LLM_EXTRA_BODY", raising=False)
+    assert LLM(ep).extra_body == NO_THINKING
+    # строка для polza не должна отключать выключатель для llama-server/vLLM
+    monkeypatch.setenv("LLM_EXTRA_BODY", '{"reasoning": {"effort": "low"}}')
+    body = LLM(ep).extra_body
+    assert body["reasoning"] == {"effort": "low"}
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    monkeypatch.setenv("LLM_EXTRA_BODY", '{"chat_template_kwargs": {"enable_thinking": false}}')
+    assert LLM(ep).extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    monkeypatch.setenv("LLM_EXTRA_BODY", "{битый json")
+    with pytest.raises(ValueError, match="не JSON"):
+        LLM(ep)

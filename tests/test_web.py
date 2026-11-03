@@ -77,3 +77,14 @@ def test_password_bruteforce_lockout(monkeypatch):
 def test_label_field_limits(monkeypatch):
     c = client(monkeypatch)
     assert c.post("/api/label", json={"pair_id": "x" * 500, "label": "repeat"}).status_code == 422
+
+
+def test_bad_llm_extra_body_disables_llm_only(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:1/v1")
+    monkeypatch.setenv("LLM_MODEL", "m")
+    monkeypatch.setenv("LLM_EXTRA_BODY", "{битый")
+    web.judge.cache_clear()
+    try:
+        assert web.judge() is None
+    finally:
+        web.judge.cache_clear()
