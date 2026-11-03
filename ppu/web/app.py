@@ -1,6 +1,7 @@
 """FastAPI-приложение: форма нового ППУ и вердикт по реестру."""
 import asyncio
 import os
+import sys
 import threading
 import time
 from functools import lru_cache
@@ -62,8 +63,13 @@ def judge() -> Judge | None:
     ep = config.llm()
     if not ep.configured or not ep.model:
         return None
+    try:
+        llm = LLM(ep)
+    except ValueError as e:  # например, битый LLM_EXTRA_BODY — проверка ППУ должна работать
+        print(f"[LLM отключена] {e}", file=sys.stderr, flush=True)
+        return None
     # с включёнными рассуждениями (polza) ответу нужно больше токенов
-    return Judge(LLM(ep), max_tokens=int(os.getenv("PPU_LLM_MAX_TOKENS", "400")))
+    return Judge(llm, max_tokens=int(os.getenv("PPU_LLM_MAX_TOKENS", "400")))
 
 
 # Документацию API (/docs, /openapi.json) не публикуем: незачем показывать всем список

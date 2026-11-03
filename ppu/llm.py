@@ -2,8 +2,11 @@
 
 Рассуждения (thinking) выключаем: на рабочем CPU это 10 т/с, каждый
 лишний токен — это заметные секунды. Как выключать, зависит от сервера:
-polza.ai понимает `reasoning`, llama-server — `chat_template_kwargs`.
-Свой вариант можно задать в .env: LLM_EXTRA_BODY={"...": ...}
+polza.ai понимает `reasoning`, llama-server и vLLM — `chat_template_kwargs`
+(для Qwen3 это {"enable_thinking": false}). По умолчанию отправляем оба.
+LLM_EXTRA_BODY в .env дополняет их: ключ из .env заменяет только одноимённый
+ключ по умолчанию. Так строка для polza ({"reasoning": ...}) не отключает
+выключатель для llama-server/vLLM.
 
 Ответ читаем потоком: так запрос можно отменить (CancelToken) — поток
 закрывается, и llama-server перестаёт генерировать, а не занимает CPU
@@ -84,9 +87,18 @@ class LLM:
         self.base_url = endpoint.base_url
         self._client = OpenAI(base_url=endpoint.base_url, api_key=endpoint.api_key,
                               timeout=timeout, max_retries=3)
-        extra = os.getenv("LLM_EXTRA_BODY")
-        self.extra_body = extra_body if extra_body is not None \
-            else json.loads(extra) if extra else NO_THINKING
+        extra = os.getenv("LLM_EXTRA_BODY", "").strip()
+        if extra_body is not None:
+            self.extra_body = extra_body
+        else:
+            try:
+                user = json.loads(extra) if extra else {}
+            except json.JSONDecodeError as e:
+                raise ValueError(f"LLM_EXTRA_BODY в .env — не JSON ({e}). Пример: "
+                                 'LLM_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}') from e
+            if not isinstance(user, dict):
+                raise ValueError("LLM_EXTRA_BODY в .env должен быть JSON-объектом {...}")
+            self.extra_body = {**NO_THINKING, **user}
         self._stream_usage = True  # не все серверы понимают stream_options
         # расход последнего вызова: токены промпта и длина ответа (без рассуждений)
         self.last_usage: dict = {}
@@ -142,9 +154,11 @@ class LLM:
                 # переспрашивать бесполезно: лимит уходит на рассуждения
                 raise LLMError(
                     f"Модель не успела ответить: все {max_tokens} токенов ушли на рассуждения. "
-                    "Выключите рассуждения (llama-server: --reasoning off; polza: "
-                    'LLM_EXTRA_BODY={"reasoning": {"effort": "low"}}) '
-                    "или поднимите PPU_LLM_MAX_TOKENS.")
+                    f"Сервер LLM не выключил их по запросу (отправлено: "
+                    f"{json.dumps(self.extra_body, ensure_ascii=False)}). Выключите рассуждения "
+                    "на самом сервере (llama-server: --reasoning off; vLLM: проверьте, что шаблон "
+                    "Qwen понимает enable_thinking) или поднимите PPU_LLM_MAX_TOKENS в .env, "
+                    "например до 4000.")
             try:
                 return parse_json(content)
             except (ValueError, json.JSONDecodeError) as e:
