@@ -284,6 +284,8 @@ venv\Scripts\python -m ppu.index data\registry_clean.jsonl --out data\index
 а сервер без него отклоняет и просмотр, и любые изменения. Пароль хранится только
 во вкладке браузера, «выйти» — в шапке `/admin`. Проверка ППУ на главной странице
 пароля не требует. Без `PPU_ADMIN_TOKEN` всё открыто, и `/admin` предупреждает об этом.
+Если веб открыт в сеть, включите HTTPS (`PPU_SSL_CERT`/`PPU_SSL_KEY`), иначе пароль
+идёт по сети открытым текстом — см. [docs/linux-server.md](docs/linux-server.md#безопасность).
 
 Оба шага одной командой: `python -m ppu.rebuild "Реестр ППУ.xlsx"`.
 

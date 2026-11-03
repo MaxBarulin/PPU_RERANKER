@@ -1,6 +1,8 @@
 """FastAPI-приложение: форма нового ППУ и вердикт по реестру."""
 import asyncio
 import os
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
@@ -64,10 +66,46 @@ def judge() -> Judge | None:
     return Judge(LLM(ep), max_tokens=int(os.getenv("PPU_LLM_MAX_TOKENS", "400")))
 
 
-app = FastAPI(title="Проверка ППУ")
+# Документацию API (/docs, /openapi.json) не публикуем: незачем показывать всем список
+# служебных адресов
+app = FastAPI(title="Проверка ППУ", docs_url=None, redoc_url=None, openapi_url=None)
+
+# Тексты страниц и скрипты — только свои; чужой сайт не встроит страницу в рамку
+# (защита от «подсовывания» кнопок), запросы — только к этому же серверу
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+       "form-action 'self'; object-src 'none'")
 
 
-def require_admin(x_admin_token: str | None = Header(None)):
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("Content-Security-Policy", CSP)
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "no-referrer")
+    if request.url.path.startswith("/api/"):
+        # тексты реестра не должны оседать в кэше браузера на общих компьютерах
+        h.setdefault("Cache-Control", "no-store")
+    return response
+
+
+# Список имён, по которым разрешено обращаться к серверу (защита от DNS rebinding:
+# чужой сайт не сможет выдать себя за этот сервер). Пусто — не проверяем.
+if os.getenv("PPU_ALLOWED_HOSTS"):
+    from starlette.middleware.trustedhost import TrustedHostMiddleware
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
+        h.strip() for h in os.environ["PPU_ALLOWED_HOSTS"].split(",") if h.strip()])
+
+# Подбор пароля: после MAX_FAILS неверных попыток с одного адреса за FAIL_WINDOW секунд
+# этот адрес ждёт, пока старые попытки не выйдут из окна
+MAX_FAILS, FAIL_WINDOW = 10, 600
+_fails: dict[str, list[float]] = {}
+_fails_lock = threading.Lock()
+
+
+def require_admin(request: Request, x_admin_token: str | None = Header(None)):
     """Всё, что на /admin и /label, — только с паролем PPU_ADMIN_TOKEN из .env (если он задан).
 
     Браузер передаёт пароль через encodeURIComponent: в HTTP-заголовке нельзя кириллицу.
@@ -75,10 +113,26 @@ def require_admin(x_admin_token: str | None = Header(None)):
     expected = os.getenv("PPU_ADMIN_TOKEN", "")
     if not expected:
         return
-    given = unquote(x_admin_token or "")
-    if not secrets.compare_digest(given.encode(), expected.encode()):
-        raise HTTPException(status_code=403, detail="Неверный пароль администратора"
-                            if x_admin_token else "Нужен пароль администратора")
+    ip = request.client.host if request.client else "?"
+    now = time.monotonic()
+    with _fails_lock:
+        recent = [t for t in _fails.get(ip, ()) if now - t < FAIL_WINDOW]
+        if recent:
+            _fails[ip] = recent
+        else:
+            _fails.pop(ip, None)
+        if len(recent) >= MAX_FAILS:
+            wait = int(FAIL_WINDOW - (now - recent[0])) // 60 + 1
+            raise HTTPException(status_code=429, detail=f"Слишком много неверных попыток ввода "
+                                f"пароля. Попробуйте через {wait} мин.")
+    if not x_admin_token:
+        raise HTTPException(status_code=403, detail="Нужен пароль администратора")
+    if not secrets.compare_digest(unquote(x_admin_token).encode(), expected.encode()):
+        with _fails_lock:
+            _fails.setdefault(ip, []).append(now)
+        raise HTTPException(status_code=403, detail="Неверный пароль администратора")
+    with _fails_lock:
+        _fails.pop(ip, None)
 
 
 ADMIN = [Depends(require_admin)]
@@ -168,8 +222,8 @@ async def api_judge(ppu: PPU, request: Request):
 # --- разметка пар для калибровки порогов (ppu.calibrate) ---
 
 class Label(BaseModel):
-    pair_id: str
-    label: str | None  # None — снять метку
+    pair_id: str = Field(max_length=200)
+    label: str | None = Field(None, max_length=30)  # None — снять метку
 
 
 def _calib_dir() -> Path:
@@ -374,9 +428,11 @@ def calib_sample(req: SampleRequest):
     if len(index) < 10:
         raise HTTPException(status_code=422, detail="В базе слишком мало записей для калибровки")
 
+    calib_dir = _calib_dir()
+
     def work(progress):
         return calibrate.sample_to_dir(
-            index, _calib_dir(), req.n_pairs, append=req.append,
+            index, calib_dir, req.n_pairs, append=req.append,
             progress=lambda done, total: progress(stage="Поиск ближайших соседей",
                                                   done=done, total=total))
     if not CALIB_JOB.start(work, on_success=_records_by_id.cache_clear, source="sample"):
@@ -426,10 +482,11 @@ def calib_llm():
         raise HTTPException(status_code=422, detail="Сначала выберите пары")
     by_id = _records_by_id()
     token = CancelToken()
+    calib_dir = _calib_dir()
 
     def work(progress):
         return calibrate.llm_label_pairs(
-            by_id, j, _calib_dir(), token=token,
+            by_id, j, calib_dir, token=token,
             progress=lambda done, total: progress(stage="LLM размечает пары", done=done, total=total))
     if not CALIB_JOB.start(work, source="llm"):
         raise HTTPException(status_code=409, detail="Уже идёт выбор или разметка пар")

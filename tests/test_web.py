@@ -44,3 +44,36 @@ def test_judge_endpoint(monkeypatch):
 def test_judge_without_llm(monkeypatch):
     r = client(monkeypatch).post("/api/judge", json={"name": "Ящик для шаблонов"})
     assert r.status_code == 503
+
+
+def test_security_headers_and_no_docs(monkeypatch):
+    c = client(monkeypatch)
+    r = c.get("/")
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert r.headers["x-frame-options"] == "DENY" and r.headers["x-content-type-options"] == "nosniff"
+    assert c.get("/api/info").headers["cache-control"] == "no-store"
+    for url in ("/docs", "/redoc", "/openapi.json"):
+        assert c.get(url).status_code == 404
+
+
+def test_password_bruteforce_lockout(monkeypatch):
+    c = client(monkeypatch)
+    monkeypatch.setenv("PPU_ADMIN_TOKEN", "верный")
+    monkeypatch.setattr(web, "_fails", {})
+    from urllib.parse import quote
+    good = {"X-Admin-Token": quote("верный")}
+    # без пароля — не попытка подбора, не блокирует
+    for _ in range(20):
+        assert c.post("/api/admin/check").status_code == 403
+    assert c.post("/api/admin/check", headers=good).status_code == 200
+    for _ in range(web.MAX_FAILS):
+        assert c.post("/api/admin/check", headers={"X-Admin-Token": "x"}).status_code == 403
+    r = c.post("/api/admin/check", headers=good)
+    assert r.status_code == 429 and "попыток" in r.json()["detail"]  # даже верный — после блокировки
+    monkeypatch.setattr(web, "_fails", {})
+    assert c.post("/api/admin/check", headers=good).status_code == 200
+
+
+def test_label_field_limits(monkeypatch):
+    c = client(monkeypatch)
+    assert c.post("/api/label", json={"pair_id": "x" * 500, "label": "repeat"}).status_code == 422

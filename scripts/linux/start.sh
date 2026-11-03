@@ -25,9 +25,12 @@ if [ ! -f .env ]; then
   cp .env.example .env
   echo "Создан .env из .env.example — проверь адреса моделей: nano .env"
 fi
+# в .env пароль администратора — читать его может только владелец
+chmod 600 .env 2>/dev/null || true
 
 PORT=$(env_get PPU_PORT); PORT=${PORT:-8010}
 HOST=$(env_get PPU_HOST); HOST=${HOST:-0.0.0.0}
+SCHEME=http; [ -n "$(env_get PPU_SSL_CERT)" ] && SCHEME=https
 
 if running; then
   echo "Уже запущен (PID $(cat "$PIDFILE")). Перезапуск: scripts/linux/stop.sh && scripts/linux/start.sh"
@@ -60,7 +63,13 @@ fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "Работает (PID $(cat "$PIDFILE")):"
-echo "  проверка ППУ:     http://${IP:-$(hostname)}:$PORT"
-echo "  обновление базы:  http://${IP:-$(hostname)}:$PORT/admin"
+echo "  проверка ППУ:     $SCHEME://${IP:-$(hostname)}:$PORT"
+echo "  обновление базы:  $SCHEME://${IP:-$(hostname)}:$PORT/admin"
+if [ "$SCHEME" = http ] && [ "$HOST" != 127.0.0.1 ]; then
+  echo "  [!] без HTTPS пароль администратора идёт по сети открытым текстом — см. docs/linux-server.md"
+fi
+if [ -z "$(env_get PPU_ADMIN_TOKEN)" ]; then
+  echo "  [!] PPU_ADMIN_TOKEN не задан — базу и калибровку может менять любой"
+fi
 echo "  лог:              tail -f logs/web.log"
 echo "  остановить:       scripts/linux/stop.sh"
