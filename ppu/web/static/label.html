@@ -53,6 +53,9 @@ footer button:hover { border-color: var(--accent); }
 .done { text-align: center; padding: 60px 20px; grid-column: 1 / -1; }
 .done code { background: var(--panel); border: 1px solid var(--line); padding: 2px 6px; border-radius: 5px; }
 .error { grid-column: 1 / -1; color: #c2410c; }
+.llm-note { grid-column: 1 / -1; background: var(--picked); border: 1px solid var(--accent); border-radius: 10px;
+            padding: 10px 14px; font-size: 14px; }
+.llm-note small { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -83,6 +86,10 @@ const OPTIONS = [
 const ENTITY = { workshops: "цех", sites: "участок", places: "", projects: "проект", models: "модель", inventory: "инв. №" };
 let current = null;
 const history = [];  // размеченные в этой сессии — для «назад»
+// ?review=1 — проверка меток, которые поставила LLM
+const REVIEW = new URLSearchParams(location.search).has("review");
+const TITLE = Object.fromEntries(OPTIONS.map(([, code, title]) => [code, title]));
+if (REVIEW) document.querySelector("header h1").textContent = "Проверка разметки LLM";
 
 $("#buttons").innerHTML = OPTIONS.map(([key, code, title, hint]) =>
   `<button data-code="${code}"><b><kbd>${key}</kbd>${title}</b>${hint ? `<small>${hint}</small>` : ""}</button>`
@@ -98,14 +105,21 @@ function record(r, side) {
 
 function show(data) {
   const { done, total } = data.progress;
-  $("#progress").textContent = `размечено ${done} из ${total}`;
+  $("#progress").textContent = REVIEW ? `проверено ${done} из ${total}` : `размечено ${done} из ${total}`;
   $("#bar").style.width = `${total ? (100 * done) / total : 0}%`;
   current = data.pair;
   if (!current) {
-    $("#main").innerHTML = `<div class="done"><h2>Все пары размечены</h2>
-      <p><a href="/admin#calib">Подобрать и применить пороги</a> — или там же добавить ещё пар.</p></div>`;
+    $("#main").innerHTML = REVIEW
+      ? `<div class="done"><h2>Все метки LLM проверены</h2>
+          <p><a href="/admin#calib">Подобрать и применить пороги</a></p></div>`
+      : `<div class="done"><h2>Все пары размечены</h2>
+          <p><a href="/admin#calib">Подобрать и применить пороги</a> — или там же добавить ещё пар.</p></div>`;
   } else {
-    $("#main").innerHTML = record(current.a, "ППУ A") + record(current.b, "ППУ B");
+    const llm = current.label_by === "llm"
+      ? `<div class="llm-note">LLM ответила: <b>${esc(TITLE[current.label] || current.label)}</b>${
+          current.label_why ? ` — ${esc(current.label_why)}` : ""}
+          <br><small>Согласны — нажмите тот же ответ, не согласны — выберите свой.</small></div>` : "";
+    $("#main").innerHTML = llm + record(current.a, "ППУ A") + record(current.b, "ППУ B");
   }
   document.querySelectorAll("footer button[data-code]").forEach((b) =>
     b.classList.toggle("picked", Boolean(current) && b.dataset.code === current.label));
@@ -114,7 +128,8 @@ function show(data) {
 
 async function load(pairId) {
   try {
-    const r = await fetch("/api/label/pair" + (pairId ? `?pair_id=${encodeURIComponent(pairId)}` : ""));
+    const r = await fetch("/api/label/pair" + (pairId ? `?pair_id=${encodeURIComponent(pairId)}`
+                                                       : REVIEW ? "?review=1" : ""));
     const data = await r.json();
     if (r.status === 404) {
       $("#main").innerHTML = `<div class="done"><h2>Пары для разметки ещё не выбраны</h2>

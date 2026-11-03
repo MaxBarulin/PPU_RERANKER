@@ -5,6 +5,9 @@
     python -m ppu.calibrate fit               # 2. подобрать пороги по разметке
     python -m ppu.calibrate fit --write       #    ... и записать data/thresholds.json
 
+Вместо людей пары может разметить LLM-судья (кнопка на /admin, llm_label_pairs):
+те же определения, метки помечаются by=llm, человек может их поправить на /label.
+
 То же — из браузера: страница /admin, раздел «Калибровка порогов».
 
 Пары — запись реестра и её ближайший сосед по векторам. Все векторы уже
@@ -17,6 +20,7 @@
 import argparse
 import json
 import random
+import threading
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +45,10 @@ LABELS = {
     "different": "не связаны",
 }
 SAME_IDEA = ("repeat", "other_place")
+# Код ответа LLM-судьи -> метка разметки
+LLM_LABELS = {"dup": "repeat", "place": "other_place", "alt": "alternative",
+              "sim": "similar", "diff": "different", "unclear": "unclear"}
+_labels_lock = threading.Lock()
 
 
 def _pair_features(index: Index, i: int, j: int) -> dict:
@@ -144,27 +152,103 @@ def load_pairs(calib_dir: Path = CALIB_DIR) -> list[dict]:
         return [json.loads(line) for line in f]
 
 
-def load_labels(calib_dir: Path = CALIB_DIR) -> dict[str, str]:
-    """pair_id -> метка; последняя запись по паре побеждает (можно переразметить)."""
+def load_label_meta(calib_dir: Path = CALIB_DIR) -> dict[str, dict]:
+    """pair_id -> последняя запись разметки {label, by, why, at}; снятые метки убираются."""
     path = calib_dir / "labels.jsonl"
-    labels = {}
+    rows = {}
     if path.exists():
         with path.open(encoding="utf-8") as f:
             for line in f:
                 row = json.loads(line)
                 if row.get("label"):
-                    labels[row["pair_id"]] = row["label"]
+                    rows[row["pair_id"]] = row
                 else:
-                    labels.pop(row["pair_id"], None)
-    return labels
+                    rows.pop(row["pair_id"], None)
+    return rows
 
 
-def save_label(pair_id: str, label: str | None, calib_dir: Path = CALIB_DIR):
+def load_labels(calib_dir: Path = CALIB_DIR) -> dict[str, str]:
+    """pair_id -> метка; последняя запись по паре побеждает (можно переразметить)."""
+    return {pid: row["label"] for pid, row in load_label_meta(calib_dir).items()}
+
+
+def save_label(pair_id: str, label: str | None, calib_dir: Path = CALIB_DIR,
+               by: str = "human", why: str | None = None):
     calib_dir.mkdir(parents=True, exist_ok=True)
-    with (calib_dir / "labels.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"pair_id": pair_id, "label": label,
-                            "at": datetime.now().isoformat(timespec="seconds")},
-                           ensure_ascii=False) + "\n")
+    row = {"pair_id": pair_id, "label": label, "by": by,
+           "at": datetime.now().isoformat(timespec="seconds")}
+    if why:
+        row["why"] = why
+    with _labels_lock, (calib_dir / "labels.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def llm_label_pairs(records_by_id: dict[str, dict], judge, calib_dir: Path = CALIB_DIR,
+                    progress: Callable[[int, int], None] | None = None, token=None,
+                    max_failures: int = 3) -> dict:
+    """Разметить LLM-судьёй выбранные, но ещё не размеченные пары.
+
+    Пары с одной и той же записью A идут одним запросом (как кандидаты к новому
+    ППУ при проверке) — так быстрее. Метки пишутся сразу, поэтому остановка или
+    обрыв ничего не теряют; повторный запуск продолжит с неразмеченных.
+    """
+    from .judge import MAX_CANDIDATES
+    from .llm import LLMCancelled, LLMError
+
+    pairs = [p for p in load_pairs(calib_dir) if p["a"] in records_by_id and p["b"] in records_by_id]
+    labeled = load_labels(calib_dir)
+    todo = [p for p in pairs if p["pair_id"] not in labeled]
+    groups = defaultdict(list)
+    for p in todo:
+        groups[p["a"]].append(p)
+    batches = [ps[k:k + MAX_CANDIDATES] for ps in groups.values()
+               for k in range(0, len(ps), MAX_CANDIDATES)]
+
+    done, failed, fails_in_row, counts, stopped = 0, 0, 0, Counter(), False
+    if progress:
+        progress(0, len(todo))
+    for batch in batches:
+        if token is not None and token.cancelled:
+            stopped = True
+            break
+        a = records_by_id[batch[0]["a"]]
+        cands = [{"id": p["b"], "completeness": records_by_id[p["b"]]["completeness"],
+                  "record": records_by_id[p["b"]]} for p in batch]
+        try:
+            verdicts = judge(a, cands, token=token)
+            fails_in_row = 0
+        except LLMCancelled:
+            stopped = True
+            break
+        except LLMError as e:
+            fails_in_row += 1
+            if fails_in_row >= max_failures:
+                raise LLMError(f"LLM не отвечает ({e}). Размечено до ошибки: "
+                               f"{sum(counts.values())} пар — они сохранены") from e
+            verdicts = {}
+        for p in batch:
+            v = verdicts.get(p["b"])
+            if v:
+                label = LLM_LABELS[v["code"]]
+                # как при проверке ППУ: цех/участок из текста надёжнее — LLM могла не заметить номер
+                if label == "repeat" and p.get("place") == "other":
+                    label = "other_place"
+                save_label(p["pair_id"], label, calib_dir, by="llm", why=v["why"])
+                counts[label] += 1
+            else:
+                failed += 1
+        done += len(batch)
+        if progress:
+            progress(done, len(todo))
+
+    names = {**LABELS, "unclear": "непонятно"}
+    lines = [("Остановлено. " if stopped else "")
+             + f"LLM разметила пар: {sum(counts.values())} из {len(todo)}"]
+    if counts:
+        lines.append(", ".join(f"{names[k]}: {n}" for k, n in counts.most_common()))
+    if failed:
+        lines.append(f"Без ответа: {failed} — их можно разметить вручную или запустить LLM ещё раз")
+    return {"count": sum(counts.values()), "total": len(todo), "report": "\n".join(lines)}
 
 
 # --- подбор порогов ---

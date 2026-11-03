@@ -110,13 +110,21 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
           <button type="button" class="link" id="resample" hidden>выбрать заново</button>
         </div>
         <p class="hint">Пары — ППУ из реестра и их ближайшие соседи, поровну по степени похожести.
-          240 пар размечаются примерно за 40–60 минут. Можно добавлять ещё — сделанная разметка сохраняется.</p>
+          240 пар вручную размечаются примерно за 40–60 минут. Можно добавлять ещё — сделанная разметка сохраняется.</p>
         <div id="sample-job"></div>
       </div></div>
       <div class="step"><div class="num">2</div><div>
         <h3>Разметить</h3>
-        <a class="button" href="/label" id="label-link">Размечать пары →</a>
-        <p class="hint">Можно прерываться и размечать вдвоём: метки сохраняются сразу.</p>
+        <div class="row">
+          <a class="button" href="/label" id="label-link">Размечать вручную →</a>
+          <button type="button" id="llm-label" class="ghost" hidden>Разметить с помощью LLM</button>
+          <button type="button" id="llm-stop" class="ghost" hidden>Остановить</button>
+          <a href="/label?review=1" id="review-link" hidden>проверить метки LLM →</a>
+        </div>
+        <p class="hint">Вручную: можно прерываться и размечать вдвоём, метки сохраняются сразу.
+          С помощью LLM: судья размечает все ещё не размеченные пары по тем же правилам. Это идёт в фоне,
+          страницу можно закрыть. Ответы LLM можно проверить и поправить: «проверить метки LLM».</p>
+        <div id="llm-job"></div>
       </div></div>
       <div class="step"><div class="num">3</div><div>
         <h3>Подобрать и применить пороги</h3>
@@ -253,6 +261,7 @@ async function loadCalib() {
       `<span class="chip">${esc(c.label_names[k] || k)}: ${n}</span>`).join("");
     $("#calib-status").innerHTML = (c.pairs
       ? `Выбрано пар: <b>${c.pairs}</b>, размечено: <b>${c.labeled}</b>`
+        + (c.labeled_by_llm ? ` (из них LLM, ещё не проверено людьми: ${c.labeled_by_llm})` : "")
       : "Пары ещё не выбраны")
       + `<br>Пороги сейчас: ${esc(c.thresholds.source)}`
       + (chips ? `<div class="chips">${chips}</div>` : "");
@@ -261,17 +270,29 @@ async function loadCalib() {
     $("#resample").hidden = !c.pairs;
     $("#reset").hidden = !c.thresholds.custom;
     $("#label-link").hidden = !c.pairs;
-    const j = c.job, running = j.status === "running";
+    $("#review-link").hidden = !c.labeled_by_llm;
+    const j = c.job, running = j.status === "running", llmJob = j.source === "llm";
+    $("#llm-label").hidden = !c.pairs || !c.llm || (running && llmJob);
+    $("#llm-stop").hidden = !(running && llmJob);
+    $("#llm-label").disabled = running || c.labeled >= c.pairs;
     $("#sample").disabled = running;
     $("#resample").disabled = running;
+    const box = llmJob ? $("#llm-job") : $("#sample-job");
+    (llmJob ? $("#sample-job") : $("#llm-job")).innerHTML = "";
     if (running) {
-      $("#sample-job").innerHTML = `<div class="bar"><div style="width:${j.total ? Math.round(100 * j.done / j.total) : 0}%"></div></div>
-        <div class="hint">${esc(j.stage)}${j.total ? ` — ${j.done} из ${j.total}` : ""}</div>`;
-      calibTimer = setTimeout(loadCalib, 1000);
+      // оценка оставшегося времени — по скорости с начала разметки
+      const spent = (Date.now() - new Date(j.started)) / 1000;
+      const left = llmJob && j.done > 0 ? Math.round(spent / j.done * (j.total - j.done) / 60) : null;
+      box.innerHTML = `<div class="bar"><div style="width:${j.total ? Math.round(100 * j.done / j.total) : 0}%"></div></div>
+        <div class="hint">${esc(j.stage)}${j.total ? ` — ${j.done} из ${j.total}` : ""}${
+          left !== null ? ` · осталось примерно ${left < 1 ? "меньше минуты" : left + " мин"}` : ""}</div>`;
+      calibTimer = setTimeout(loadCalib, 1500);
     } else if (j.status === "done") {
-      $("#sample-job").innerHTML = `<div class="ok">Выбрано пар: ${j.records}. Можно размечать.</div>`;
+      box.innerHTML = llmJob
+        ? `<div class="ok">${esc(j.report).replace(/\n/g, "<br>")}</div>`
+        : `<div class="ok">Выбрано пар: ${j.records}. Можно размечать.</div>`;
     } else if (j.status === "error") {
-      $("#sample-job").innerHTML = `<div class="error">${esc(j.error)}</div>`;
+      box.innerHTML = `<div class="error">${esc(j.error)}</div>`;
     }
   } catch (e) {
     $("#calib-status").textContent = e.message;
@@ -305,6 +326,21 @@ async function fit(apply) {
   }
 }
 
+$("#llm-label").addEventListener("click", async () => {
+  if (!confirm("LLM разметит все ещё не размеченные пары. На процессоре 240 пар могут размечаться около часа, на видеокарте — минуты. Остановить можно в любой момент, размеченное сохранится. Начать?")) return;
+  try {
+    await api("/api/calib/llm", { method: "POST", headers: headers() });
+  } catch (e) {
+    $("#llm-job").innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  }
+  loadCalib();
+});
+$("#llm-stop").addEventListener("click", async () => {
+  try { await api("/api/calib/llm/stop", { method: "POST", headers: headers() }); }
+  catch (e) { $("#llm-job").innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+  $("#llm-stop").disabled = true;
+  setTimeout(() => { $("#llm-stop").disabled = false; loadCalib(); }, 800);
+});
 $("#sample").addEventListener("click", () => sample(true));
 $("#resample").addEventListener("click", () => sample(false));
 $("#fit").addEventListener("click", () => fit(false));
