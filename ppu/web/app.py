@@ -176,8 +176,12 @@ def label_page():
 
 
 @app.get("/api/label/pair")
-def label_pair(pair_id: str | None = None):
-    """Пара для разметки: указанная или первая неразмеченная."""
+def label_pair(pair_id: str | None = None, review: bool = False):
+    """Пара для разметки: указанная или первая неразмеченная.
+
+    review — проверка меток LLM: первая пара, размеченная LLM и ещё не
+    подтверждённая человеком (ответ человека пишется поверх, by=human).
+    """
     pairs = calibrate.load_pairs(_calib_dir())
     if not pairs:
         raise HTTPException(status_code=404,
@@ -188,14 +192,26 @@ def label_pair(pair_id: str | None = None):
     if not pairs:
         raise HTTPException(status_code=409, detail="Пары выбраны по другой базе: "
                             "на /admin нажмите «выбрать заново»")
-    labels = calibrate.load_labels(_calib_dir())
-    pair = next((p for p in pairs if p["pair_id"] == pair_id), None) if pair_id \
-        else next((p for p in pairs if p["pair_id"] not in labels), None)
-    progress = {"done": sum(p["pair_id"] in labels for p in pairs), "total": len(pairs)}
+    meta = calibrate.load_label_meta(_calib_dir())
+    labels = {pid: row["label"] for pid, row in meta.items()}
+    by_llm = {pid for pid, row in meta.items() if row.get("by") == "llm"}
+    if pair_id:
+        pair = next((p for p in pairs if p["pair_id"] == pair_id), None)
+    elif review:
+        pair = next((p for p in pairs if p["pair_id"] in by_llm), None)
+    else:
+        pair = next((p for p in pairs if p["pair_id"] not in labels), None)
+    if review:  # проверено людьми из всех размеченных
+        labeled = [p for p in pairs if p["pair_id"] in labels]
+        progress = {"done": sum(p["pair_id"] not in by_llm for p in labeled), "total": len(labeled)}
+    else:
+        progress = {"done": sum(p["pair_id"] in labels for p in pairs), "total": len(pairs)}
     if pair is None:
         return {"pair": None, "progress": progress}
     return {"pair": {"pair_id": pair["pair_id"], "a": _record_view(by_id[pair["a"]]),
-                     "b": _record_view(by_id[pair["b"]]), "label": labels.get(pair["pair_id"])},
+                     "b": _record_view(by_id[pair["b"]]), "label": labels.get(pair["pair_id"]),
+                     "label_by": meta.get(pair["pair_id"], {}).get("by"),
+                     "label_why": meta.get(pair["pair_id"], {}).get("why")},
             "progress": progress, "labels": calibrate.LABELS}
 
 
@@ -314,14 +330,16 @@ class SampleRequest(BaseModel):
 @app.get("/api/calib/status")
 def calib_status():
     pairs = calibrate.load_pairs(_calib_dir())
-    labels = calibrate.load_labels(_calib_dir())
+    meta = calibrate.load_label_meta(_calib_dir())
     ids = {p["pair_id"] for p in pairs}
-    by_label = {}
-    for pid, lab in labels.items():
+    by_label, by_llm = {}, 0
+    for pid, row in meta.items():
         if pid in ids:
-            by_label[lab] = by_label.get(lab, 0) + 1
+            by_label[row["label"]] = by_label.get(row["label"], 0) + 1
+            by_llm += row.get("by") == "llm"
     path = thresholds_path()
     return {"pairs": len(pairs), "labeled": sum(by_label.values()), "by_label": by_label,
+            "labeled_by_llm": by_llm, "llm": judge() is not None,
             "label_names": {**calibrate.LABELS, "unclear": "непонятно"},
             "thresholds": {"custom": path.exists(), "source": active_calibration().source},
             "token_required": bool(os.getenv("PPU_ADMIN_TOKEN")),
@@ -341,8 +359,8 @@ def calib_sample(req: SampleRequest, x_admin_token: str | None = Header(None)):
             index, _calib_dir(), req.n_pairs, append=req.append,
             progress=lambda done, total: progress(stage="Поиск ближайших соседей",
                                                   done=done, total=total))
-    if not CALIB_JOB.start(work, on_success=_records_by_id.cache_clear):
-        raise HTTPException(status_code=409, detail="Выбор пар уже идёт")
+    if not CALIB_JOB.start(work, on_success=_records_by_id.cache_clear, source="sample"):
+        raise HTTPException(status_code=409, detail="Уже идёт выбор или разметка пар")
     return CALIB_JOB.snapshot()
 
 
@@ -375,3 +393,38 @@ def calib_reset(x_admin_token: str | None = Header(None)):
     _check_token(x_admin_token)
     thresholds_path().unlink(missing_ok=True)
     return {"source": active_calibration().source}
+
+
+_llm_label_token: CancelToken | None = None
+
+
+@app.post("/api/calib/llm")
+def calib_llm(x_admin_token: str | None = Header(None)):
+    """Разметить неразмеченные пары LLM-судьёй в фоне. Метки можно поправить на /label."""
+    global _llm_label_token
+    _check_token(x_admin_token)
+    j = judge()
+    if j is None:
+        raise HTTPException(status_code=503, detail="LLM не настроена: LLM_BASE_URL и LLM_MODEL в .env")
+    if not calibrate.load_pairs(_calib_dir()):
+        raise HTTPException(status_code=422, detail="Сначала выберите пары")
+    by_id = _records_by_id()
+    token = CancelToken()
+
+    def work(progress):
+        return calibrate.llm_label_pairs(
+            by_id, j, _calib_dir(), token=token,
+            progress=lambda done, total: progress(stage="LLM размечает пары", done=done, total=total))
+    if not CALIB_JOB.start(work, source="llm"):
+        raise HTTPException(status_code=409, detail="Уже идёт выбор или разметка пар")
+    _llm_label_token = token
+    return CALIB_JOB.snapshot()
+
+
+@app.post("/api/calib/llm/stop")
+def calib_llm_stop(x_admin_token: str | None = Header(None)):
+    """Остановить разметку LLM: уже размеченные пары сохранятся."""
+    _check_token(x_admin_token)
+    if _llm_label_token is not None:
+        _llm_label_token.cancel()
+    return CALIB_JOB.snapshot()

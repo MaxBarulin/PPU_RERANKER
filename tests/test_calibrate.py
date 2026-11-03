@@ -193,3 +193,102 @@ def test_label_skips_pairs_from_old_base(tmp_path, monkeypatch):
     r = c.get("/api/label/pair").json()
     assert r["pair"]["pair_id"] != stale["pair_id"] and r["progress"]["total"] == len(pairs)
     web._records_by_id.cache_clear()
+
+
+# --- разметка пар LLM-судьёй ---
+
+def fake_judge(code_for=lambda a, b: "dup", calls=None, fail=False):
+    from ppu.llm import LLMError
+
+    def judge(query, cands, token=None):
+        if calls is not None:
+            calls.append((query["id"], [c["id"] for c in cands]))
+        if fail:
+            raise LLMError("сервер LLM недоступен")
+        return {c["id"]: {"relation": "x", "code": code_for(query["id"], c["id"]), "why": "пояснение"}
+                for c in cands}
+    return judge
+
+
+def test_llm_label_pairs_groups_and_keeps_human(tmp_path):
+    index = big_index()
+    by_id = {r["id"]: r for r in index.records}
+    calibrate.sample_to_dir(index, tmp_path, n_pairs=40, n_queries=60)
+    pairs = calibrate.load_pairs(tmp_path)
+    calibrate.save_label(pairs[0]["pair_id"], "different", tmp_path)  # человек уже разметил
+
+    calls = []
+    res = calibrate.llm_label_pairs(by_id, fake_judge(calls=calls), tmp_path)
+    meta = calibrate.load_label_meta(tmp_path)
+    assert res["count"] == len(pairs) - 1 and len(meta) == len(pairs)
+    assert meta[pairs[0]["pair_id"]]["by"] == "human" and meta[pairs[0]["pair_id"]]["label"] == "different"
+    assert {r["by"] for pid, r in meta.items() if pid != pairs[0]["pair_id"]} == {"llm"}
+    assert all(len(c) <= 4 for _, c in calls) and len(calls) < len(pairs)  # пары по одной A — одним запросом
+    # повторный запуск ничего не делает — всё размечено
+    assert calibrate.llm_label_pairs(by_id, fake_judge(calls=calls), tmp_path)["total"] == 0
+
+
+def test_llm_label_pairs_stop_and_failure(tmp_path):
+    import pytest
+    from ppu.llm import CancelToken, LLMError
+    index = big_index()
+    by_id = {r["id"]: r for r in index.records}
+    calibrate.sample_to_dir(index, tmp_path, n_pairs=40, n_queries=60)
+    token = CancelToken()
+    calls = []
+
+    def judge(q, c, token=None):
+        calls.append(1)
+        if len(calls) == 2:
+            token.cancel()
+        return fake_judge()(q, c)
+    res = calibrate.llm_label_pairs(by_id, lambda q, c, token=None: judge(q, c, token), tmp_path,
+                                    token=token)
+    assert res["report"].startswith("Остановлено") and 0 < res["count"] < res["total"]
+    with pytest.raises(LLMError, match="сохранены"):
+        calibrate.llm_label_pairs(by_id, fake_judge(fail=True), tmp_path)
+
+
+def test_llm_labeling_via_web(tmp_path, monkeypatch):
+    index = big_index()
+    c = calib_client(tmp_path, monkeypatch, index)
+    monkeypatch.setattr(web, "judge", lambda: fake_judge(
+        code_for=lambda a, b: "dup" if index.records[int(a)]["name_clean"].split()[0]
+        == index.records[int(b)]["name_clean"].split()[0] else "diff"))
+    assert c.post("/api/calib/llm").status_code == 422  # пар ещё нет
+    c.post("/api/calib/sample", json={"n_pairs": 40})
+    wait_calib(c)
+    assert c.post("/api/calib/llm").status_code == 200
+    s = wait_calib(c)
+    assert s["job"]["status"] == "done" and s["job"]["source"] == "llm"
+    assert s["labeled"] == s["pairs"] == s["labeled_by_llm"] and "LLM разметила" in s["job"]["report"]
+
+    # проверка людьми: пара с меткой LLM и пояснением, ответ человека её подтверждает
+    r = c.get("/api/label/pair?review=1").json()
+    pair = r["pair"]
+    assert pair["label_by"] == "llm" and pair["label_why"] == "пояснение"
+    assert r["progress"] == {"done": 0, "total": s["pairs"]}
+    c.post("/api/label", json={"pair_id": pair["pair_id"], "label": pair["label"]})
+    r2 = c.get("/api/label/pair?review=1").json()
+    assert r2["progress"]["done"] == 1 and (r2["pair"] is None or r2["pair"]["pair_id"] != pair["pair_id"])
+    assert c.get("/api/calib/status").json()["labeled_by_llm"] == s["pairs"] - 1
+    assert "Подобрано" in c.post("/api/calib/fit").json()["report"]
+    web._records_by_id.cache_clear()
+
+
+def test_llm_labeling_without_llm(tmp_path, monkeypatch):
+    c = calib_client(tmp_path, monkeypatch, big_index())
+    monkeypatch.setattr(web, "judge", lambda: None)
+    assert c.post("/api/calib/llm").status_code == 503
+    assert c.get("/api/calib/status").json()["llm"] is False
+    web._records_by_id.cache_clear()
+
+
+def test_llm_repeat_in_other_place_becomes_other_place(tmp_path):
+    index = big_index()
+    by_id = {r["id"]: r for r in index.records}
+    calibrate.sample_to_dir(index, tmp_path, n_pairs=40, n_queries=60)
+    calibrate.llm_label_pairs(by_id, fake_judge(), tmp_path)
+    labels = calibrate.load_labels(tmp_path)
+    for p in calibrate.load_pairs(tmp_path):
+        assert labels[p["pair_id"]] == ("other_place" if p["place"] == "other" else "repeat")
