@@ -97,3 +97,16 @@ def test_assess_returns_more_and_matched_words(monkeypatch):
     found = data["candidates"] + data["more"]
     assert len({x["id"] for x in found}) == len(found)  # без повторов
     assert any("ручка" in x["matched"] or "напильник" in x["matched"] for x in found)
+
+
+def test_topic_summary_and_word_list(monkeypatch):
+    c = client(monkeypatch)
+    data = c.post("/api/assess", json={"name": "Ручки для напильников"}).json()
+    topic = data["topic"]
+    assert topic["close"] >= 1 and topic["words"]
+    w = topic["words"][0]
+    r = c.get("/api/word", params={"w": w["word"]}).json()
+    assert r["count"] == w["count"] == len(r["records"]) and r["records"][0]["name"]
+    # слово в другой форме находит то же
+    assert c.get("/api/word", params={"w": "напильников"}).json()["word"] == "напильник"
+    assert c.get("/api/word", params={"w": "и"}).status_code == 422

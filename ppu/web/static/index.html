@@ -83,6 +83,19 @@ button:disabled { opacity: .55; cursor: wait; }
 .why { font-size: 13px; margin-top: 4px; color: var(--text); }
 .match { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .match b { font-weight: 600; color: var(--text); }
+.topic { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 10px 14px;
+         margin-bottom: 10px; font-size: 14px; }
+.topic .words { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+button.word { font: inherit; font-size: 13px; font-weight: 600; padding: 2px 10px; border-radius: 12px;
+              background: var(--similar-bg); color: var(--similar); border: 1px solid transparent; cursor: pointer; }
+button.word:hover, button.word.on { border-color: var(--similar); }
+.wl { background: var(--panel); border: 1px solid var(--similar); border-radius: 9px; padding: 12px 14px; margin-bottom: 12px; }
+.wl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.wl-head b { font-size: 15px; }
+.wl details { border-top: 1px solid var(--line); padding: 7px 0; }
+.wl summary { cursor: pointer; list-style: none; }
+.wl summary::-webkit-details-marker { display: none; }
+.wl .details { padding: 8px 0 4px; }
 details.more { margin-top: 6px; }
 details.more > summary { cursor: pointer; list-style: none; padding: 10px 14px; border: 1px dashed var(--line);
                          border-radius: 9px; color: var(--accent); font-weight: 600; margin-bottom: 10px; }
@@ -178,6 +191,13 @@ function render(res) {
   queryHasPlace = Boolean(e.workshops || e.sites || e.places);
   const cands = res.candidates.map(candidate).join("");
   const more = res.more || [];
+  const tp = res.topic || { words: [] };
+  const words = tp.words.map((x) => `<button type="button" class="word" data-word="${esc(x.word)}"
+      title="Показать все ППУ со словом «${esc(x.word)}»">«${esc(x.word)}» — ${x.count} ППУ</button>`).join("");
+  const topic = `<div class="topic">${tp.close ? `Похожих по смыслу: <b>${tp.close}</b>` : "Похожих по смыслу нет"}${
+      tp.more ? ` · ещё по теме: <b>${tp.more}</b> <span class="sub">(«Показать ещё» внизу)</span>` : ""}${
+      words ? `<div class="words">Во всей базе: ${words} <span>— нажмите, чтобы увидеть все</span></div>` : ""}</div>
+    <div id="word-list"></div>`;
   $("#out").innerHTML = `
     <div class="verdict v-${res.verdict}">
       <h2>${esc(res.verdict_text)}</h2>
@@ -192,11 +212,13 @@ function render(res) {
         </div>
         ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}` : ""}
     </div>
+    ${res.candidates.length || more.length || words ? topic : ""}
     ${cands || '<div class="panel empty">Кандидатов нет</div>'}
     ${more.length ? `<details class="more"><summary>Показать ещё ${more.length}
         <small>По смыслу они далеко от нового ППУ, но могут пригодиться: общие слова, та же тема</small></summary>
         ${more.map(candidate).join("")}</details>` : ""}`;
   $("#ask-llm")?.addEventListener("click", askLLM);
+  document.querySelectorAll("button.word").forEach((b) => b.addEventListener("click", () => showWord(b)));
 }
 
 async function post(url, body, signal) {
@@ -218,6 +240,34 @@ async function check(ev) {
     $("#out").innerHTML = `<div class="error">Не удалось проверить: ${esc(e.message)}</div>`;
   } finally {
     $("#go").disabled = false; $("#go").textContent = "Проверить";
+  }
+}
+
+// все ППУ базы, где встречается слово (в любой форме)
+async function showWord(btn) {
+  const box = $("#word-list");
+  if (btn.classList.contains("on")) { btn.classList.remove("on"); box.innerHTML = ""; return; }
+  document.querySelectorAll("button.word.on").forEach((b) => b.classList.remove("on"));
+  btn.classList.add("on");
+  box.innerHTML = '<div class="wl"><span class="sub">загрузка…</span></div>';
+  try {
+    const r = await fetch("/api/word?w=" + encodeURIComponent(btn.dataset.word));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.status);
+    const block = (title, text) => text ? `<div><h4>${title}</h4><p>${esc(text)}</p></div>` : "";
+    const rows = d.records.map((x) => {
+      const sub = [x.id && "№ " + x.id, x.status || "без статуса", x.date_submitted,
+                   x.effect ? "ЭЭ " + Number(x.effect).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · ");
+      const body = block("До улучшения", x.before) + block("После улучшения", x.after) + block("Предложения", x.proposal);
+      return `<details><summary><div class="title">${esc(x.name)}</div><div class="sub">${esc(sub)}</div></summary>
+        <div class="details">${body || '<p class="sub">Описания нет — в реестре «См.вложение»</p>'}</div></details>`;
+    }).join("");
+    box.innerHTML = `<div class="wl"><div class="wl-head"><b>Все ППУ со словом «${esc(d.word)}»: ${d.count}</b>
+        <button type="button" class="ghost small" id="wl-close">Скрыть</button></div>
+      ${d.count > d.records.length ? `<div class="sub">Показаны ${d.records.length} самых новых</div>` : ""}${rows}</div>`;
+    $("#wl-close").addEventListener("click", () => { btn.classList.remove("on"); box.innerHTML = ""; });
+  } catch (e) {
+    box.innerHTML = `<div class="error">Не удалось загрузить список: ${esc(e.message)}</div>`;
   }
 }
 

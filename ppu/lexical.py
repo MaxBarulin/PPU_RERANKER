@@ -65,6 +65,11 @@ class BM25:
             for t, p in postings.items()
         }
 
+    def docs_with(self, term: str) -> list[int]:
+        """Номера записей, где встречается слово."""
+        p = self._postings.get(term)
+        return p[0].tolist() if p is not None else []
+
     def doc_share(self, term: str) -> float:
         """Доля записей, где встречается слово (0 — нигде)."""
         p = self._postings.get(term)

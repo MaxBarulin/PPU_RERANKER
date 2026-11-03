@@ -109,6 +109,7 @@ VERDICT_ORDER = ("repeat", "other_place", "alternative", "similar")
 SERVICE_WORDS = {"проблема", "решение"}
 COMMON_SHARE = 0.25
 MORE_MAX = 20  # сколько ещё найденных показывать под «Показать ещё»
+TOPIC_WORDS = 3  # сколько ключевых слов запроса показывать со счётчиком по всей базе
 LLM_UNIQUENESS = {"repeat": 0.05, "other_place": 0.1, "alternative": 0.4, "similar": 0.65, "far": 1.0}
 
 
@@ -219,6 +220,12 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         "calibration": cal.source,
         "candidates": shown,
         "more": more,
+        # сводка «по теме»: сколько показано и сколько ППУ во всей базе с ключевыми словами
+        # запроса (не только среди 30 кандидатов)
+        "topic": {"close": sum(c["relation"] != "far" for c in shown), "more": len(more),
+                  "words": [{"word": w, "count": len(bm25.docs_with(w))}
+                            for w in sorted(q_lemmas, key=lambda w: -bm25.idf.get(w, 0))
+                            if bm25.docs_with(w)][:TOPIC_WORDS]},
     }
     if judge and (res["needs_llm"] or force_judge):
         _apply_judge(res, query, judge, by_id)
