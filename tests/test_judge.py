@@ -32,12 +32,12 @@ def test_judge_maps_codes_and_drops_unknown_ids():
     assert "[3] Контейнер для хранения шаблонов (в реестре только название)" in llm.calls[0]
 
 
-def test_prompt_keeps_new_ppu_whole_and_truncates_candidates():
+def test_prompt_keeps_texts_whole():
     q = make_query("Ручки", before="очень " * 1000)
     long_rec = dict(cand("1")["record"], before_norm="длинно " * 500)
     prompt = build_prompt(q, [{"id": "1", "completeness": "full", "record": long_rec}])
     assert prompt.startswith("НОВОЕ: Ручки") and prompt.count("очень") == 1000  # новое ППУ целиком
-    assert "…" in prompt.split("РЕЕСТР:")[1]  # кандидат обрезан
+    assert prompt.count("длинно") == 500 and "…" not in prompt  # кандидат тоже целиком
 
 
 def test_judge_checks_all_candidates_in_batches():
