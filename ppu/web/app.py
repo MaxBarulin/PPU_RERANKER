@@ -175,7 +175,9 @@ def _assess(ppu: PPU, with_llm: bool, token: CancelToken) -> dict:
     index, embedder = engine()
     query = make_query(ppu.name, ppu.before, ppu.after, ppu.proposal)
     j = judge() if with_llm else None
-    res = assess(index, query, embedder, force_judge=with_llm, top_k=30,
+    # 100 лучших по поиску: под «Показать ещё» идут все, кто прошёл фильтр (общие слова или
+    # близость > 0); дальше по списку — уже не похожие записи
+    res = assess(index, query, embedder, force_judge=with_llm, top_k=100,
                  judge=(lambda q, cands: j(q, cands, token=token)) if j else None)
     res["query"] = {"name": query["name_clean"], "completeness": query["completeness"],
                     "entities": query["entities"]}

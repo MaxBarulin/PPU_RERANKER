@@ -108,7 +108,6 @@ VERDICT_ORDER = ("repeat", "other_place", "alternative", "similar")
 # и слова, которые есть в большой доле записей, — не показываем как «общие слова»
 SERVICE_WORDS = {"проблема", "решение"}
 COMMON_SHARE = 0.25
-MORE_MAX = 20  # сколько ещё найденных показывать под «Показать ещё»
 TOPIC_WORDS = 3  # сколько ключевых слов запроса показывать со счётчиком по всей базе
 LLM_UNIQUENESS = {"repeat": 0.05, "other_place": 0.1, "alternative": 0.4, "similar": 0.65, "far": 1.0}
 
@@ -207,9 +206,8 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
     shown_ids = {c["id"] for c in shown}
     # остальное найденное — по смыслу далеко, но может пригодиться (общие слова, та же тема);
     # в вердикт не входит, в интерфейсе — под «Показать ещё»
-    # без общих слов и с нулевой близостью — просто шум, не показываем
+    # без общих слов и с нулевой близостью — просто шум, не показываем; остальное — всё
     more = [c for c in by_search if c["id"] not in shown_ids and (c["matched"] or c["score"] > 0)]
-    more = more[:MORE_MAX]
     res = {
         "verdict": verdict,
         "verdict_text": VERDICT_TEXT[verdict],
