@@ -409,7 +409,8 @@ $("#login-form").addEventListener("submit", async (ev) => {
     $("#password").value = "";
     showContent(true);
   } catch (e) {
-    $("#login-error").textContent = "Неверный пароль";
+    setToken("");
+    $("#login-error").textContent = e.message === "Неверный пароль администратора" ? "Неверный пароль" : e.message;
   }
 });
 $("#logout").addEventListener("click", (ev) => { ev.preventDefault(); showLogin(); });

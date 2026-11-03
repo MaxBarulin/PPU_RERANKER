@@ -160,6 +160,7 @@ async function load(pairId) {
                                                        : REVIEW ? "?review=1" : ""), { headers: auth() });
     const data = await r.json();
     if (r.status === 403) { showLogin(getToken() ? "Неверный пароль" : ""); return; }
+    if (r.status === 429) { showLogin(data.detail); return; }
     if (r.status === 404) {
       $("#main").innerHTML = `<div class="done"><h2>Пары для разметки ещё не выбраны</h2>
         <p><a href="/admin#calib">Выбрать пары</a> на странице обновления базы.</p></div>`;

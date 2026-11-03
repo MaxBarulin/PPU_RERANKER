@@ -8,3 +8,4 @@ pymorphy3-dicts-ru
 fastapi>=0.110
 uvicorn[standard]>=0.29
 pytest>=8.0
+defusedxml>=0.7
