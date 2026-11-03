@@ -146,15 +146,32 @@ def test_upload_bad_file(app_client):
 
 
 def test_upload_token(app_client, monkeypatch):
-    monkeypatch.setenv("PPU_ADMIN_TOKEN", "секрет".encode().hex())
+    from urllib.parse import quote
+    monkeypatch.setenv("PPU_ADMIN_TOKEN", "секрет 1")
+    ok = {"X-Admin-Token": quote("секрет 1")}  # так кодирует браузер (encodeURIComponent)
     c = app_client
-    assert c.get("/api/index/status").json()["token_required"]
+    assert c.get("/api/admin/auth").json() == {"required": True}
+    assert c.post("/api/admin/check").status_code == 403
+    assert c.post("/api/admin/check", headers={"X-Admin-Token": "неверно".encode().hex()}).status_code == 403
+    assert c.post("/api/admin/check", headers=ok).json() == {"ok": True}
+    assert c.get("/api/index/status").status_code == 403
+    assert c.get("/api/index/status", headers=ok).json()["token_required"]
     assert c.post("/api/index/upload?filename=r.xlsx", content=xlsx_bytes(RAW)).status_code == 403
-    r = c.post("/api/index/upload?filename=r.xlsx", content=xlsx_bytes(RAW),
-               headers={"X-Admin-Token": "секрет".encode().hex()})
-    assert r.status_code == 200
-    wait_job(c)
+    assert c.post("/api/index/upload?filename=r.xlsx", content=xlsx_bytes(RAW), headers=ok).status_code == 200
+    for _ in range(200):
+        if c.get("/api/index/status", headers=ok).json()["status"] != "running":
+            break
+        time.sleep(0.05)
     assert c.post("/api/index/rebuild").status_code == 403
+    # проверка ППУ и страницы — без пароля
+    assert c.get("/api/info").status_code == 200
+    assert c.post("/api/assess", json={"name": "Ручки для напильников"}).status_code == 200
+    assert c.get("/admin").status_code == 200 and c.get("/label").status_code == 200
+
+
+def test_without_token_everything_open(app_client):
+    assert app_client.get("/api/admin/auth").json() == {"required": False}
+    assert app_client.post("/api/admin/check").json() == {"ok": True}
 
 
 def test_no_numpy_handles_left(tmp_path):

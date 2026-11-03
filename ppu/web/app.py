@@ -5,7 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Header, HTTPException, Request
+import secrets
+from urllib.parse import unquote
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -62,6 +65,23 @@ def judge() -> Judge | None:
 
 
 app = FastAPI(title="Проверка ППУ")
+
+
+def require_admin(x_admin_token: str | None = Header(None)):
+    """Всё, что на /admin и /label, — только с паролем PPU_ADMIN_TOKEN из .env (если он задан).
+
+    Браузер передаёт пароль через encodeURIComponent: в HTTP-заголовке нельзя кириллицу.
+    """
+    expected = os.getenv("PPU_ADMIN_TOKEN", "")
+    if not expected:
+        return
+    given = unquote(x_admin_token or "")
+    if not secrets.compare_digest(given.encode(), expected.encode()):
+        raise HTTPException(status_code=403, detail="Неверный пароль администратора"
+                            if x_admin_token else "Нужен пароль администратора")
+
+
+ADMIN = [Depends(require_admin)]
 
 
 @app.exception_handler(NoIndex)
@@ -175,7 +195,7 @@ def label_page():
     return FileResponse(STATIC / "label.html")
 
 
-@app.get("/api/label/pair")
+@app.get("/api/label/pair", dependencies=ADMIN)
 def label_pair(pair_id: str | None = None, review: bool = False):
     """Пара для разметки: указанная или первая неразмеченная.
 
@@ -215,7 +235,7 @@ def label_pair(pair_id: str | None = None, review: bool = False):
             "progress": progress, "labels": calibrate.LABELS}
 
 
-@app.post("/api/label")
+@app.post("/api/label", dependencies=ADMIN)
 def label_save(item: Label):
     if item.label is not None and item.label not in {*calibrate.LABELS, "unclear"}:
         raise HTTPException(status_code=422, detail=f"Неизвестная метка: {item.label}")
@@ -233,13 +253,6 @@ _upload_lock = asyncio.Lock()
 def _registry_path() -> Path:
     """Последний загруженный реестр — из него же «Пересобрать» без новой загрузки."""
     return Path(os.getenv("PPU_REGISTRY", "data/registry.xlsx"))
-
-
-def _check_token(token: str | None):
-    """Если в .env задан PPU_ADMIN_TOKEN — без него базу не обновить."""
-    expected = os.getenv("PPU_ADMIN_TOKEN", "")
-    if expected and token != expected:
-        raise HTTPException(status_code=403, detail="Неверный пароль администратора")
 
 
 def _source_file() -> Path:
@@ -260,12 +273,23 @@ def _start(path: Path, source: str):
     return JOB.snapshot()
 
 
+@app.get("/api/admin/auth")
+def admin_auth():
+    """Нужен ли пароль (страницы спрашивают его до показа содержимого)."""
+    return {"required": bool(os.getenv("PPU_ADMIN_TOKEN"))}
+
+
+@app.post("/api/admin/check", dependencies=ADMIN)
+def admin_check():
+    return {"ok": True}
+
+
 @app.get("/admin")
 def admin_page():
     return FileResponse(STATIC / "admin.html")
 
 
-@app.get("/api/index/status")
+@app.get("/api/index/status", dependencies=ADMIN)
 def index_status():
     reg, src = _registry_path(), _source_file()
     name = (src.read_text(encoding="utf-8") if src.exists() else reg.name) if reg.exists() else None
@@ -273,11 +297,9 @@ def index_status():
             "registry": name}
 
 
-@app.post("/api/index/upload")
-async def index_upload(request: Request, filename: str = "registry.xlsx",
-                       x_admin_token: str | None = Header(None)):
+@app.post("/api/index/upload", dependencies=ADMIN)
+async def index_upload(request: Request, filename: str = "registry.xlsx"):
     """Тело запроса — сам файл Excel. Сохраняет его и запускает пересборку в фоне."""
-    _check_token(x_admin_token)
     name = Path(filename).name
     if not name.lower().endswith(EXCEL_SUFFIXES):
         raise HTTPException(status_code=422, detail="Нужен файл .xlsx (старый .xls — "
@@ -306,10 +328,9 @@ async def index_upload(request: Request, filename: str = "registry.xlsx",
         return _start(target, name)
 
 
-@app.post("/api/index/rebuild")
-def index_rebuild(x_admin_token: str | None = Header(None)):
+@app.post("/api/index/rebuild", dependencies=ADMIN)
+def index_rebuild():
     """Пересобрать из последнего загруженного реестра (например, после обрыва)."""
-    _check_token(x_admin_token)
     path = _registry_path()
     if not path.exists():
         raise HTTPException(status_code=404, detail="Реестр ещё не загружался")
@@ -327,7 +348,7 @@ class SampleRequest(BaseModel):
     append: bool = True
 
 
-@app.get("/api/calib/status")
+@app.get("/api/calib/status", dependencies=ADMIN)
 def calib_status():
     pairs = calibrate.load_pairs(_calib_dir())
     meta = calibrate.load_label_meta(_calib_dir())
@@ -346,10 +367,9 @@ def calib_status():
             "job": CALIB_JOB.snapshot()}
 
 
-@app.post("/api/calib/sample")
-def calib_sample(req: SampleRequest, x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/sample", dependencies=ADMIN)
+def calib_sample(req: SampleRequest):
     """Выбрать пары для разметки в фоне: добавить к уже выбранным или заменить их."""
-    _check_token(x_admin_token)
     index, _ = engine()
     if len(index) < 10:
         raise HTTPException(status_code=422, detail="В базе слишком мало записей для калибровки")
@@ -364,10 +384,9 @@ def calib_sample(req: SampleRequest, x_admin_token: str | None = Header(None)):
     return CALIB_JOB.snapshot()
 
 
-@app.post("/api/calib/fit")
-def calib_fit(x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/fit", dependencies=ADMIN)
+def calib_fit():
     """Подобрать пороги по разметке и показать, что изменится. Ничего не применяет."""
-    _check_token(x_admin_token)
     try:
         _, text = calibrate.fit_from_dir(_calib_dir())
     except ValueError as e:
@@ -375,10 +394,9 @@ def calib_fit(x_admin_token: str | None = Header(None)):
     return {"report": text}
 
 
-@app.post("/api/calib/apply")
-def calib_apply(x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/apply", dependencies=ADMIN)
+def calib_apply():
     """Подобрать пороги и сразу применить: проверка ППУ начнёт их использовать со следующего запроса."""
-    _check_token(x_admin_token)
     try:
         fitted, text = calibrate.fit_from_dir(_calib_dir())
     except ValueError as e:
@@ -387,10 +405,9 @@ def calib_apply(x_admin_token: str | None = Header(None)):
     return {"report": text, "source": fitted.source}
 
 
-@app.post("/api/calib/reset")
-def calib_reset(x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/reset", dependencies=ADMIN)
+def calib_reset():
     """Вернуть пороги по умолчанию (с синтетики). Разметка не удаляется."""
-    _check_token(x_admin_token)
     thresholds_path().unlink(missing_ok=True)
     return {"source": active_calibration().source}
 
@@ -398,11 +415,10 @@ def calib_reset(x_admin_token: str | None = Header(None)):
 _llm_label_token: CancelToken | None = None
 
 
-@app.post("/api/calib/llm")
-def calib_llm(x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/llm", dependencies=ADMIN)
+def calib_llm():
     """Разметить неразмеченные пары LLM-судьёй в фоне. Метки можно поправить на /label."""
     global _llm_label_token
-    _check_token(x_admin_token)
     j = judge()
     if j is None:
         raise HTTPException(status_code=503, detail="LLM не настроена: LLM_BASE_URL и LLM_MODEL в .env")
@@ -421,10 +437,9 @@ def calib_llm(x_admin_token: str | None = Header(None)):
     return CALIB_JOB.snapshot()
 
 
-@app.post("/api/calib/llm/stop")
-def calib_llm_stop(x_admin_token: str | None = Header(None)):
+@app.post("/api/calib/llm/stop", dependencies=ADMIN)
+def calib_llm_stop():
     """Остановить разметку LLM: уже размеченные пары сохранятся."""
-    _check_token(x_admin_token)
     if _llm_label_token is not None:
         _llm_label_token.cancel()
     return CALIB_JOB.snapshot()

@@ -60,6 +60,13 @@ a.button { display: inline-block; text-decoration: none; font-weight: 600; borde
 .chip { font-size: 12px; padding: 1px 8px; border-radius: 5px; background: var(--bg); border: 1px solid var(--line); }
 button.link { background: none; border: 0; padding: 0; color: var(--muted); font-weight: 400;
               text-decoration: underline; font-size: 13px; }
+[hidden] { display: none !important; }
+#content { display: grid; gap: 16px; }
+#login { max-width: 420px; width: 100%; margin: 40px auto 0; }
+#login input { width: 100%; font: inherit; color: inherit; background: var(--bg);
+               border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+#login-error { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 8px; }
+#logout { margin-left: 16px; }
 pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px solid var(--line);
       border-radius: 7px; padding: 10px; max-height: 420px; overflow: auto; }
 </style>
@@ -68,8 +75,25 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
 <header>
   <h1>Обновление базы ППУ</h1>
   <a href="/">← к проверке ППУ</a>
+  <a href="#" id="logout" hidden>выйти</a>
 </header>
 <main>
+  <section class="panel" id="login" hidden>
+    <h2>Вход для администратора</h2>
+    <p class="hint" style="margin-top:0">Обновление базы и калибровка доступны только по паролю.
+      Его знает ответственный за сервис.</p>
+    <form id="login-form">
+      <label for="password">Пароль</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+      <div class="actions"><button type="submit">Войти</button></div>
+      <div id="login-error"></div>
+    </form>
+  </section>
+
+  <div id="content" hidden>
+  <div class="error" id="no-pass" hidden>Пароль администратора не задан — менять базу и калибровку
+    может любой, кто откроет эту страницу. Задайте <code>PPU_ADMIN_TOKEN=...</code> в <code>.env</code>
+    на сервере и перезапустите веб.</div>
   <section class="panel">
     <h2>Сейчас в базе</h2>
     <dl id="current"><dt>Загрузка…</dt><dd></dd></dl>
@@ -80,10 +104,6 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
     <form id="form">
       <label for="file">Файл реестра Excel (.xlsx)</label>
       <input type="file" id="file" accept=".xlsx,.xlsm" required>
-      <div id="token-row" hidden>
-        <label for="token">Пароль администратора</label>
-        <input type="password" id="token" autocomplete="current-password">
-      </div>
       <div class="actions">
         <button type="submit" id="upload">Загрузить и пересобрать</button>
         <button type="button" class="ghost" id="rebuild" hidden>Пересобрать из последнего файла</button>
@@ -139,6 +159,7 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
       </div></div>
     </div>
   </section>
+  </div>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -147,10 +168,20 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const fmtTime = (s) => (s || "").replace("T", " ");
 let timer = null;
 
+// Пароль хранится только в этой вкладке (sessionStorage) и уходит в каждый запрос.
+// encodeURIComponent — в HTTP-заголовке нельзя кириллицу, сервер раскодирует.
+const TOKEN_KEY = "ppu_admin_token";
+function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
+function setToken(v) { try { v ? sessionStorage.setItem(TOKEN_KEY, v) : sessionStorage.removeItem(TOKEN_KEY); } catch {} }
+
 async function api(url, opts = {}) {
-  const r = await fetch(url, opts);
+  const t = getToken();
+  const r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}),
+                                                   ...(t ? { "X-Admin-Token": encodeURIComponent(t) } : {}) } });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : `ошибка ${r.status}`);
+  const msg = typeof data.detail === "string" ? data.detail : `ошибка ${r.status}`;
+  if (r.status === 403) { showLogin(msg); throw new Error(msg); }
+  if (!r.ok) throw new Error(msg);
   return data;
 }
 
@@ -180,7 +211,6 @@ function renderJob(j) {
   $("#rebuild").disabled = running;
   $("#rebuild").hidden = !j.registry;
   if (j.registry) $("#rebuild").textContent = `Пересобрать из последнего файла (${j.registry})`;
-  $("#token-row").hidden = !j.token_required;
   if (j.status === "idle") { box.hidden = true; return; }
   box.hidden = false;
   const pct = j.total ? Math.round((j.done / j.total) * 100) : null;
@@ -212,13 +242,12 @@ async function poll() {
     if (j.status === "running") { timer = setTimeout(poll, 1500); return; }
     if (j.status === "done") loadInfo();
   } catch (e) {
-    timer = setTimeout(poll, 5000);  // веб перезапускается — попробуем ещё
+    if (!$("#content").hidden) timer = setTimeout(poll, 5000);  // веб перезапускается — попробуем ещё
   }
 }
 
 function headers(extra = {}) {
-  const t = $("#token").value;
-  return t ? { ...extra, "X-Admin-Token": t } : extra;
+  return extra;  // пароль добавляет api()
 }
 
 $("#form").addEventListener("submit", async (ev) => {
@@ -265,7 +294,6 @@ async function loadCalib() {
       : "Пары ещё не выбраны")
       + `<br>Пороги сейчас: ${esc(c.thresholds.source)}`
       + (chips ? `<div class="chips">${chips}</div>` : "");
-    $("#token-row").hidden = !c.token_required;
     $("#sample").textContent = c.pairs ? "Добавить пары" : "Выбрать пары";
     $("#resample").hidden = !c.pairs;
     $("#reset").hidden = !c.thresholds.custom;
@@ -355,9 +383,48 @@ $("#reset").addEventListener("click", async () => {
   loadCalib();
 });
 
-loadInfo();
-poll();
-loadCalib();
+// --- вход ---
+function showLogin(msg) {
+  setToken("");
+  clearTimeout(timer); clearTimeout(calibTimer);
+  $("#content").hidden = true;
+  $("#logout").hidden = true;
+  $("#login").hidden = false;
+  $("#login-error").textContent = msg && msg !== "Нужен пароль администратора" ? msg : "";
+  $("#password").focus();
+}
+
+function showContent(protectedByPassword) {
+  $("#login").hidden = true;
+  $("#content").hidden = false;
+  $("#logout").hidden = !protectedByPassword;
+  loadInfo(); poll(); loadCalib();
+}
+
+$("#login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  setToken($("#password").value);
+  try {
+    await api("/api/admin/check", { method: "POST" });
+    $("#password").value = "";
+    showContent(true);
+  } catch (e) {
+    $("#login-error").textContent = "Неверный пароль";
+  }
+});
+$("#logout").addEventListener("click", (ev) => { ev.preventDefault(); showLogin(); });
+
+(async () => {
+  try {
+    const a = await (await fetch("/api/admin/auth")).json();
+    if (!a.required) { $("#no-pass").hidden = false; showContent(false); return; }
+    if (!getToken()) { showLogin(); return; }
+    await api("/api/admin/check", { method: "POST" });
+    showContent(true);
+  } catch (e) {
+    if ($("#login").hidden) showLogin("Сервер недоступен — обновите страницу");
+  }
+})();
 </script>
 </body>
 </html>
