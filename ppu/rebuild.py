@@ -112,7 +112,9 @@ class Job:
                              records=meta.get("count"), report=meta.get("report"))
             except Exception as e:  # покажем причину на странице, подробности — в лог
                 traceback.print_exc()
-                self._update(status="error", error=f"{e.__class__.__name__}: {e}")
+                # свои ошибки уже написаны для человека — без имени класса
+                own = type(e).__name__ in ("DBError", "LLMError", "ValueError")
+                self._update(status="error", error=str(e) if own else f"{type(e).__name__}: {e}")
             finally:
                 self._update(finished=datetime.now().isoformat(timespec="seconds"))
 
@@ -132,6 +134,20 @@ def rebuild_from_excel(path: str | Path, index_dir: str | Path, cache_path: str 
     embedder = Embedder(endpoint, cache_path=cache_path)
     return rebuild(raw, index_dir, embedder, endpoint.model,
                    source=source or Path(path).name, progress=progress)
+
+
+def rebuild_from_db(index_dir: str | Path, cache_path: str | Path,
+                    progress: Progress | None = None) -> dict:
+    from . import config, db
+    from .embed import Embedder
+
+    progress = progress or (lambda **kw: None)
+    progress(stage="Чтение базы данных")
+    raw = db.load_registry_db()
+    endpoint = config.embeddings()
+    embedder = Embedder(endpoint, cache_path=cache_path)
+    return rebuild(raw, index_dir, embedder, endpoint.model,
+                   source=f"база данных {db.describe()}", progress=progress)
 
 
 def main():

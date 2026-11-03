@@ -9,3 +9,4 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pytest>=8.0
 defusedxml>=0.7
+pymssql>=2.3

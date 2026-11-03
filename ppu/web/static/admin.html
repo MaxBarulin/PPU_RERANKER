@@ -61,6 +61,8 @@ a.button { display: inline-block; text-decoration: none; font-weight: 600; borde
 button.link { background: none; border: 0; padding: 0; color: var(--muted); font-weight: 400;
               text-decoration: underline; font-size: 13px; }
 [hidden] { display: none !important; }
+.panel h3 { margin: 4px 0 6px; font-size: 15px; }
+.db-check ul { margin: 6px 0 0; padding-left: 18px; }
 #content { display: grid; gap: 16px; }
 #login { max-width: 420px; width: 100%; margin: 40px auto 0; }
 #login input { width: 100%; font: inherit; color: inherit; background: var(--bg);
@@ -100,7 +102,17 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
   </section>
 
   <section class="panel">
-    <h2>Загрузить реестр</h2>
+    <h2>Обновить реестр</h2>
+    <div id="db-block" hidden>
+      <h3>Из базы данных</h3>
+      <div class="hint" id="db-target" style="margin:0 0 4px"></div>
+      <div class="actions" style="margin-top:8px">
+        <button type="button" id="db-rebuild">Обновить из базы</button>
+        <button type="button" class="ghost" id="db-check">Проверить подключение</button>
+      </div>
+      <div id="db-out" style="margin-top:10px"></div>
+      <h3 style="margin-top:20px">Или из файла Excel</h3>
+    </div>
     <form id="form">
       <label for="file">Файл реестра Excel (.xlsx)</label>
       <input type="file" id="file" accept=".xlsx,.xlsm" required>
@@ -211,6 +223,11 @@ function renderJob(j) {
   $("#rebuild").disabled = running;
   $("#rebuild").hidden = !j.registry;
   if (j.registry) $("#rebuild").textContent = `Пересобрать из последнего файла (${j.registry})`;
+  if (j.db) {
+    $("#db-block").hidden = !j.db.configured;
+    $("#db-target").textContent = j.db.target ? `Источник: ${j.db.target}` : "";
+  }
+  $("#db-rebuild").disabled = running;
   if (j.status === "idle") { box.hidden = true; return; }
   box.hidden = false;
   const pct = j.total ? Math.round((j.done / j.total) * 100) : null;
@@ -266,6 +283,43 @@ $("#form").addEventListener("submit", async (ev) => {
     btn.disabled = false;
   } finally {
     btn.textContent = "Загрузить и пересобрать";
+  }
+});
+
+$("#db-check").addEventListener("click", async () => {
+  const btn = $("#db-check"), out = $("#db-out");
+  btn.disabled = true; out.innerHTML = '<span class="hint">подключаюсь…</span>';
+  try {
+    const r = await api("/api/db/check", { method: "POST" });
+    const n = (x) => Number(x).toLocaleString("ru-RU");
+    const mapped = Object.entries(r.mapped).map(([f, c]) => `${esc(f)} ← «${esc(c)}»`).join(", ");
+    if (r.missing.length) {
+      out.innerHTML = `<div class="error db-check">Подключение есть (строк: ${n(r.rows)}), но не найдены колонки:
+        <b>${esc(r.missing.join(", "))}</b>.<ul><li>Колонки в таблице: ${esc(r.columns.join(", "))}</li>
+        <li>Нужен запрос с переименованием — DB_QUERY_FILE в .env (см. docs/linux-server.md)</li></ul></div>`;
+    } else {
+      const sample = r.sample.map((x) => `<li>№ ${esc(x.id)} · ${esc(x.name)} · ${esc(x.status || "—")} · ${esc(x.date_submitted || "—")}</li>`).join("");
+      out.innerHTML = `<div class="ok db-check">Подключение есть: ${n(r.rows)} строк, ППУ: <b>${n(r.records)}</b>.
+        <ul><li>Узнаны колонки: ${mapped}</li>
+        ${r.not_used.length ? `<li>Не используются: ${esc(r.not_used.join(", "))}</li>` : ""}
+        <li>Без рег. номера: ${n(r.without_reg_no)}, повторов рег. номера: ${n(r.duplicate_ids)}</li>
+        ${sample}</ul></div>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("#db-rebuild").addEventListener("click", async () => {
+  if (!confirm("Пересобрать базу ППУ из базы данных? Пока идёт сборка, проверка работает по старой базе.")) return;
+  try {
+    renderJob(await api("/api/index/rebuild-db", { method: "POST" }));
+    poll();
+  } catch (e) {
+    $("#job").hidden = false;
+    $("#job").innerHTML = `<div class="error">${esc(e.message)}</div>`;
   }
 });
 
