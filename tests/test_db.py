@@ -33,14 +33,29 @@ def fake_pymssql(monkeypatch, columns=EXCEL_LIKE, rows=ROWS, fail_connect=None, 
         pass
 
     class Cursor:
-        description = [(c, 1, None, None, None, None, None) for c in columns]
+        description = None
+        _rows = ()
 
         def execute(self, sql):
             if seen is not None:
                 seen.append(sql)
+            if "TOP 0 *" in sql:
+                self.description, self._rows = [(c,) for c in columns], []
+            elif "COUNT(*)" in sql:
+                self.description, self._rows = [("",)], [(len(rows),)]
+            elif sql.startswith("SELECT [") and " FROM [" in sql:
+                wanted = [c.strip()[1:-1].replace("]]", "]")
+                          for c in sql[len("SELECT "):sql.index(" FROM ")].split("], [")
+                          for c in [c if c.startswith("[") else "[" + c]
+                          for c in [c if c.endswith("]") else c + "]"]]
+                idx = [columns.index(c) for c in wanted]
+                self.description = [(c,) for c in wanted]
+                self._rows = [tuple(r[i] for i in idx) for r in rows]
+            else:  # запрос из файла — отдаём как есть
+                self.description, self._rows = [(c,) for c in columns], list(rows)
 
         def fetchall(self):
-            return list(rows)
+            return list(self._rows)
 
     class Conn:
         def cursor(self):
@@ -70,9 +85,11 @@ def db_env(monkeypatch):
 
 
 def test_query_building(db_env, monkeypatch, tmp_path):
-    assert db.query(db.settings()) == "SELECT * FROM [PPU_Export]"
+    assert db.query(db.settings()) == "SELECT TOP 0 * FROM [PPU_Export]"
+    assert db.query(db.settings(), ["Рег. №", "Стран]ное"]) == \
+        "SELECT [Рег. №], [Стран]]ное] FROM [PPU_Export]"
     monkeypatch.setenv("DB_TABLE", "dbo.PPU_Export")
-    assert db.query(db.settings()) == "SELECT * FROM [dbo].[PPU_Export]"
+    assert db.query(db.settings()) == "SELECT TOP 0 * FROM [dbo].[PPU_Export]"
     monkeypatch.setenv("DB_TABLE", "PPU_Export; DROP TABLE x")
     with pytest.raises(db.DBError):
         db.query(db.settings())
@@ -91,6 +108,9 @@ def test_check_and_load(db_env, monkeypatch):
     assert res["mapped"]["name"] == "Наименование" and res["not_used"] == ["Служебное"]
     assert res["without_reg_no"] == 1 and res["duplicate_ids"] == 0
     assert seen[0]["server"] == "SRV-SPSQL3" and seen[0]["database"] == "URPS" and "port" not in seen[0]
+    # сначала только названия колонок, потом — только нужные колонки, без «Служебное»
+    sqls = [x for x in seen if isinstance(x, str)]
+    assert sqls[0] == "SELECT TOP 0 * FROM [PPU_Export]" and "Служебное" not in sqls[1]
 
     recs = db.load_registry_db()
     assert [r["id"] for r in recs] == ["101", "102", "db3"]
@@ -107,7 +127,7 @@ def test_canonical_column_names(db_env, monkeypatch):
 def test_missing_columns_and_errors(db_env, monkeypatch):
     fake_pymssql(monkeypatch, columns=["ID", "Title", "Text"], rows=[(1, "a", "b")])
     res = db.check()
-    assert "наименование" in res["missing"] and "records" not in res
+    assert "наименование" in res["missing"] and "records" not in res and res["rows"] == 1
     with pytest.raises(db.DBError, match="Колонки в таблице: ID, Title, Text"):
         db.load_registry_db()
     fake_pymssql(monkeypatch, fail_connect="Adaptive Server connection failed")
