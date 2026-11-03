@@ -88,3 +88,12 @@ def test_bad_llm_extra_body_disables_llm_only(monkeypatch):
         assert web.judge() is None
     finally:
         web.judge.cache_clear()
+
+
+def test_assess_returns_more_and_matched_words(monkeypatch):
+    c = client(monkeypatch)
+    data = c.post("/api/assess", json={"name": "Ручки для напильников", "before": "мероприятие",
+                                      "after": "мероприятие"}).json()
+    found = data["candidates"] + data["more"]
+    assert len({x["id"] for x in found}) == len(found)  # без повторов
+    assert any("ручка" in x["matched"] or "напильник" in x["matched"] for x in found)

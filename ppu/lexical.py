@@ -65,6 +65,11 @@ class BM25:
             for t, p in postings.items()
         }
 
+    def doc_share(self, term: str) -> float:
+        """Доля записей, где встречается слово (0 — нигде)."""
+        p = self._postings.get(term)
+        return len(p[0]) / self.n_docs if p is not None and self.n_docs else 0.0
+
     def scores(self, query: list[str]) -> np.ndarray:
         s = np.zeros(self.n_docs, dtype=np.float32)
         for term in set(query):

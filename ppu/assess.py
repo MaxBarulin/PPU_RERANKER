@@ -24,8 +24,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from .index import EmbedFn, Index, load_index
+from .index import EmbedFn, Index, load_index, view_texts
 from .judge import MAX_CANDIDATES
+from .lexical import lemmas
 from .search import make_query, search
 
 
@@ -103,6 +104,11 @@ VERDICT_TEXT = {
 }
 VERDICT_ORDER = ("repeat", "other_place", "alternative", "similar")
 # Уникальность после LLM: по самой близкой связи среди проверенных кандидатов
+# Подписи, которые сервис сам добавляет в полный текст («Проблема: …», «Решение: …»),
+# и слова, которые есть в большой доле записей, — не показываем как «общие слова»
+SERVICE_WORDS = {"проблема", "решение"}
+COMMON_SHARE = 0.25
+MORE_MAX = 20  # сколько ещё найденных показывать под «Показать ещё»
 LLM_UNIQUENESS = {"repeat": 0.05, "other_place": 0.1, "alternative": 0.4, "similar": 0.65, "far": 1.0}
 
 
@@ -184,8 +190,25 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         c["date_submitted"] = rec.get("date_submitted")
     cands.sort(key=lambda c: (c["score"], c["dense"]), reverse=True)
 
+    # какие редкие слова запроса есть в записи — чтобы было видно, почему она найдена
+    bm25 = index.bm25
+    # цифры (номера цехов и т.п.) как «общие слова» ничего не объясняют
+    q_lemmas = {w for w in lemmas(view_texts(query)["full"])
+                if w not in SERVICE_WORDS and not w.isdigit() and bm25.doc_share(w) <= COMMON_SHARE}
+    for c in cands:
+        common = q_lemmas & set(by_id[c["id"]].get("lemmas") or ())
+        c["matched"] = sorted(common, key=lambda w: -bm25.idf.get(w, 0))[:4]
+
     verdict = _verdict(cands)
-    shown = [c for c in cands if c["relation"] != "far"] or cands[:3]
+    # если всё «далеко», первыми — найденные и по словам, и по смыслу (порядок поиска)
+    by_search = sorted(cands, key=lambda c: -c["rrf"])
+    shown = [c for c in cands if c["relation"] != "far"] or by_search[:3]
+    shown_ids = {c["id"] for c in shown}
+    # остальное найденное — по смыслу далеко, но может пригодиться (общие слова, та же тема);
+    # в вердикт не входит, в интерфейсе — под «Показать ещё»
+    # без общих слов и с нулевой близостью — просто шум, не показываем
+    more = [c for c in by_search if c["id"] not in shown_ids and (c["matched"] or c["score"] > 0)]
+    more = more[:MORE_MAX]
     res = {
         "verdict": verdict,
         "verdict_text": VERDICT_TEXT[verdict],
@@ -195,6 +218,7 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         "judged_by": "vectors",
         "calibration": cal.source,
         "candidates": shown,
+        "more": more,
     }
     if judge and (res["needs_llm"] or force_judge):
         _apply_judge(res, query, judge, by_id)
