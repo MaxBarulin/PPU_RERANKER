@@ -81,6 +81,14 @@ button:disabled { opacity: .55; cursor: wait; }
 .badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .unsure { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .why { font-size: 13px; margin-top: 4px; color: var(--text); }
+.match { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.match b { font-weight: 600; color: var(--text); }
+details.more { margin-top: 6px; }
+details.more > summary { cursor: pointer; list-style: none; padding: 10px 14px; border: 1px dashed var(--line);
+                         border-radius: 9px; color: var(--accent); font-weight: 600; margin-bottom: 10px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+details.more[open] > summary { color: var(--muted); }
 .llm-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .external { margin-top: 8px; font-size: 12px; color: var(--repeat); }
 button.small { padding: 5px 12px; font-size: 13px; }
@@ -149,12 +157,14 @@ function candidate(c) {
                c.completeness === "name_only" ? "в реестре только название" : ""].filter(Boolean);
   const body = block("До улучшения", t.before) + block("После улучшения", t.after)
              + block("Предложения", t.proposal) + block("Результат", t.result) + chips(c.entities);
-  const llm = c.llm ? `<div class="why">LLM: ${esc(c.llm.why || RELATION[c.relation])}${
-    c.relation_vectors !== c.relation ? ` <span class="sub">(по векторам: ${RELATION[c.relation_vectors]})</span>` : ""}</div>` : "";
+  const llm = c.llm ? `<div class="why">Подробная проверка: ${esc(c.llm.why || RELATION[c.relation])}${
+    c.relation_vectors !== c.relation ? ` <span class="sub">(быстрая проверка: ${RELATION[c.relation_vectors]})</span>` : ""}</div>` : "";
+  const match = c.matched && c.matched.length
+    ? `<div class="match">общие слова: <b>${esc(c.matched.join(", "))}</b></div>` : "";
   return `<details class="cand">
     <summary>
       <div class="score">${Math.round(c.score * 100)}<small>близость</small></div>
-      <div><div class="title">${esc(c.name)}</div><div class="sub">${esc(sub.join(" · "))}</div>${llm}</div>
+      <div><div class="title">${esc(c.name)}</div><div class="sub">${esc(sub.join(" · "))}</div>${match}${llm}</div>
       <div class="badges"><span class="badge r-${c.relation}">${RELATION[c.relation]}</span>
         ${c.uncertain ? '<span class="unsure">не уверен</span>' : ""}</div>
     </summary>
@@ -167,21 +177,25 @@ function render(res) {
   const e = res.query.entities || {};
   queryHasPlace = Boolean(e.workshops || e.sites || e.places);
   const cands = res.candidates.map(candidate).join("");
+  const more = res.more || [];
   $("#out").innerHTML = `
     <div class="verdict v-${res.verdict}">
       <h2>${esc(res.verdict_text)}</h2>
       <div class="meter"><div style="width:${u}%"></div></div>
-      <div class="meta">Уникальность ${u}%${res.judged_by === "llm" ? " · уточнено LLM" : ""}</div>
+      <div class="meta">Уникальность ${u}%${res.judged_by === "llm" ? " · проверено подробно" : ""}</div>
       ${res.needs_llm ? '<span class="flag">Спорный случай</span>' : ""}
       ${llmAvailable && res.judged_by !== "llm" && res.candidates.length ? `
         <div class="llm-row">
-          <button type="button" id="ask-llm" class="${res.needs_llm ? "" : "ghost"} small">Уточнить у LLM</button>
+          <button type="button" id="ask-llm" class="${res.needs_llm ? "" : "ghost"} small">Проверить подробнее</button>
           <button type="button" id="cancel-llm" class="ghost small" hidden>Отменить</button>
-          <span class="hint" id="llm-status">может занять до минуты</span>
+          <span class="hint" id="llm-status">медленнее, до минуты: сервис внимательно перечитает тексты</span>
         </div>
         ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}` : ""}
     </div>
-    ${cands || '<div class="panel empty">Кандидатов нет</div>'}`;
+    ${cands || '<div class="panel empty">Кандидатов нет</div>'}
+    ${more.length ? `<details class="more"><summary>Показать ещё ${more.length}
+        <small>По смыслу они далеко от нового ППУ, но могут пригодиться: общие слова, та же тема</small></summary>
+        ${more.map(candidate).join("")}</details>` : ""}`;
   $("#ask-llm")?.addEventListener("click", askLLM);
 }
 
@@ -213,12 +227,12 @@ async function askLLM() {
   const ctrl = new AbortController();
   cancel.hidden = false;
   cancel.onclick = () => ctrl.abort();
-  btn.disabled = true; btn.textContent = "LLM читает…";
+  btn.disabled = true; btn.textContent = "Читаю тексты…";
   const timer = setInterval(() => (status.textContent = `${Math.round((Date.now() - started) / 1000)} с`), 1000);
   try {
     render(await post("/api/judge", lastBody, ctrl.signal));
   } catch (e) {
-    btn.disabled = false; btn.textContent = "Уточнить у LLM";
+    btn.disabled = false; btn.textContent = "Проверить подробнее";
     cancel.hidden = true;
     status.textContent = e.name === "AbortError" ? "отменено" : `не удалось: ${e.message}`;
   } finally {
@@ -243,7 +257,7 @@ fetch("/api/info").then((r) => r.json()).then((i) => {
   }
   $("#info").textContent = `в реестре ${i.records.toLocaleString("ru-RU")} ППУ · индекс от ${(i.built || "").replace("T", " ")}`
     + (i.rebuild === "running" ? " · идёт обновление базы" : "")
-    + (i.llm ? "" : " · LLM не настроена");
+    + (i.llm ? "" : " · подробная проверка недоступна");
 }).catch(() => ($("#info").textContent = "сервер недоступен"));
 </script>
 </body>
