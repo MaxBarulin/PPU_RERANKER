@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import secrets
 from urllib.parse import unquote
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ from ..embed import Embedder
 from ..index import load_index
 from ..rebuild import Job, rebuild_from_excel
 from ..judge import Judge
+from ..lexical import lemmas
 from ..llm import LLM, CancelToken, LLMCancelled, LLMError, is_local
 from ..search import make_query
 
@@ -248,6 +249,26 @@ def _record_view(rec: dict) -> dict:
             "effect": rec.get("effect"), "entities": rec.get("entities", {}),
             "completeness": rec.get("completeness"),
             **{f: rec.get(f"{f}_clean", "") for f in ("before", "after", "proposal")}}
+
+
+WORD_LIST_MAX = 200
+
+
+@app.get("/api/word")
+def word_list(w: str = Query(min_length=2, max_length=60)):
+    """Все ППУ базы, где встречается слово (в любой форме), — новые сверху.
+
+    Открыто, как и проверка ППУ: по клику на слово в сводке «В базе: …».
+    """
+    index, _ = engine()
+    found = lemmas(w)
+    if not found:
+        raise HTTPException(status_code=422, detail="Слово слишком общее или пустое")
+    lemma = found[0]
+    recs = [index.records[i] for i in index.bm25.docs_with(lemma)]
+    recs.sort(key=lambda r: r.get("date_submitted") or "", reverse=True)
+    return {"word": lemma, "count": len(recs),
+            "records": [_record_view(r) for r in recs[:WORD_LIST_MAX]]}
 
 
 @app.get("/label")
