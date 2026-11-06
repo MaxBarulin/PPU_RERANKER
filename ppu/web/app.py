@@ -51,9 +51,9 @@ def _cache_path() -> str:
 
 @lru_cache(maxsize=1)
 def engine():
-    """Индекс и клиент эмбеддингов — один раз на процесс (сбрасывается после пересборки)."""
+    """Индекс и клиент эмбеддингов - один раз на процесс (сбрасывается после пересборки)."""
     if not (_index_dir() / "meta.json").exists():
-        raise NoIndex("Индекса ещё нет — загрузите реестр на странице /admin")
+        raise NoIndex("Индекса ещё нет - загрузите реестр на странице /admin")
     index = load_index(_index_dir())
     embedder = Embedder(config.embeddings(), cache_path=_cache_path())
     return index, embedder
@@ -61,13 +61,13 @@ def engine():
 
 @lru_cache(maxsize=1)
 def judge() -> Judge | None:
-    """LLM-судья, если LLM настроена. Параметры запроса — LLM_EXTRA_BODY в .env."""
+    """LLM-судья, если LLM настроена. Параметры запроса - LLM_EXTRA_BODY в .env."""
     ep = config.llm()
     if not ep.configured or not ep.model:
         return None
     try:
         llm = LLM(ep)
-    except ValueError as e:  # например, битый LLM_EXTRA_BODY — проверка ППУ должна работать
+    except ValueError as e:  # например, битый LLM_EXTRA_BODY - проверка ППУ должна работать
         print(f"[LLM отключена] {e}", file=sys.stderr, flush=True)
         return None
     # с включёнными рассуждениями (polza) ответу нужно больше токенов
@@ -78,8 +78,8 @@ def judge() -> Judge | None:
 # служебных адресов
 app = FastAPI(title="Проверка ППУ", docs_url=None, redoc_url=None, openapi_url=None)
 
-# Тексты страниц и скрипты — только свои; чужой сайт не встроит страницу в рамку
-# (защита от «подсовывания» кнопок), запросы — только к этому же серверу
+# Тексты страниц и скрипты - только свои; чужой сайт не встроит страницу в рамку
+# (защита от «подсовывания» кнопок), запросы - только к этому же серверу
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
        "form-action 'self'; object-src 'none'")
@@ -100,7 +100,7 @@ async def security_headers(request: Request, call_next):
 
 
 # Список имён, по которым разрешено обращаться к серверу (защита от DNS rebinding:
-# чужой сайт не сможет выдать себя за этот сервер). Пусто — не проверяем.
+# чужой сайт не сможет выдать себя за этот сервер). Пусто - не проверяем.
 if os.getenv("PPU_ALLOWED_HOSTS"):
     from starlette.middleware.trustedhost import TrustedHostMiddleware
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
@@ -114,7 +114,7 @@ _fails_lock = threading.Lock()
 
 
 def require_admin(request: Request, x_admin_token: str | None = Header(None)):
-    """Всё, что на /admin и /label, — только с паролем PPU_ADMIN_TOKEN из .env (если он задан).
+    """Всё, что на /admin и /label, - только с паролем PPU_ADMIN_TOKEN из .env (если он задан).
 
     Браузер передаёт пароль через encodeURIComponent: в HTTP-заголовке нельзя кириллицу.
     """
@@ -183,7 +183,7 @@ def _assess(ppu: PPU, with_llm: bool, token: CancelToken) -> dict:
     query = make_query(ppu.name, ppu.before, ppu.after, ppu.proposal)
     j = judge() if with_llm else None
     # 100 лучших по поиску: под «Показать ещё» идут все, кто прошёл фильтр (общие слова или
-    # близость > 0); дальше по списку — уже не похожие записи
+    # близость > 0); дальше по списку - уже не похожие записи
     res = assess(index, query, embedder, force_judge=with_llm, top_k=100,
                  judge=(lambda q, cands: j(q, cands, token=token)) if j else None)
     res["query"] = {"name": query["name_clean"], "completeness": query["completeness"],
@@ -192,20 +192,20 @@ def _assess(ppu: PPU, with_llm: bool, token: CancelToken) -> dict:
 
 
 def _ignore_result(task: asyncio.Future):
-    # задача после отмены доработает в потоке до ближайшей проверки токена — результат не нужен
+    # задача после отмены доработает в потоке до ближайшей проверки токена - результат не нужен
     if not task.cancelled():
         task.exception()
 
 
 async def _run(ppu: PPU, with_llm: bool, request: Request):
     token = CancelToken()
-    # эмбеддинги и LLM — блокирующие HTTP-вызовы, уводим из event loop
+    # эмбеддинги и LLM - блокирующие HTTP-вызовы, уводим из event loop
     task = asyncio.ensure_future(run_in_threadpool(_assess, ppu, with_llm, token))
     try:
         while not task.done():
             await asyncio.wait({task}, timeout=0.5)
             if not task.done() and await request.is_disconnected():
-                # браузер оборвал запрос (кнопка «Отменить») — останавливаем LLM
+                # браузер оборвал запрос (кнопка «Отменить») - останавливаем LLM
                 token.cancel()
                 task.add_done_callback(_ignore_result)
                 raise HTTPException(status_code=499, detail="Запрос отменён")
@@ -218,7 +218,7 @@ async def _run(ppu: PPU, with_llm: bool, request: Request):
         raise HTTPException(status_code=499, detail=str(e))
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e))
-    except Exception as e:  # модель недоступна и т.п. — показываем причину в интерфейсе
+    except Exception as e:  # модель недоступна и т.п. - показываем причину в интерфейсе
         raise HTTPException(status_code=502, detail=f"{e.__class__.__name__}: {e}")
 
 
@@ -239,7 +239,7 @@ async def api_judge(ppu: PPU, request: Request):
 
 class Label(BaseModel):
     pair_id: str = Field(max_length=200)
-    label: str | None = Field(None, max_length=30)  # None — снять метку
+    label: str | None = Field(None, max_length=30)  # None - снять метку
 
 
 def _calib_dir() -> Path:
@@ -265,7 +265,7 @@ WORD_LIST_MAX = 200
 
 @app.get("/api/word")
 def word_list(w: str = Query(min_length=2, max_length=60)):
-    """Все ППУ базы, где встречается слово (в любой форме), — новые сверху.
+    """Все ППУ базы, где встречается слово (в любой форме), - новые сверху.
 
     Открыто, как и проверка ППУ: по клику на слово в сводке «В базе: …».
     """
@@ -289,15 +289,15 @@ def label_page():
 def label_pair(pair_id: str | None = None, review: bool = False):
     """Пара для разметки: указанная или первая неразмеченная.
 
-    review — проверка меток LLM: первая пара, размеченная LLM и ещё не
+    review - проверка меток LLM: первая пара, размеченная LLM и ещё не
     подтверждённая человеком (ответ человека пишется поверх, by=human).
     """
     pairs = calibrate.load_pairs(_calib_dir())
     if not pairs:
         raise HTTPException(status_code=404,
-                            detail="Пар нет — выберите их на странице /admin, раздел «Калибровка порогов»")
+                            detail="Пар нет - выберите их на странице /admin, раздел «Калибровка порогов»")
     by_id = _records_by_id()
-    # после обновления базы часть пар может ссылаться на исчезнувшие записи — пропускаем их
+    # после обновления базы часть пар может ссылаться на исчезнувшие записи - пропускаем их
     pairs = [p for p in pairs if p["a"] in by_id and p["b"] in by_id]
     if not pairs:
         raise HTTPException(status_code=409, detail="Пары выбраны по другой базе: "
@@ -341,12 +341,12 @@ _upload_lock = asyncio.Lock()
 
 
 def _registry_path() -> Path:
-    """Последний загруженный реестр — из него же «Пересобрать» без новой загрузки."""
+    """Последний загруженный реестр - из него же «Пересобрать» без новой загрузки."""
     return Path(os.getenv("PPU_REGISTRY", "data/registry.xlsx"))
 
 
 def _source_file() -> Path:
-    # исходное имя загруженного файла — чтобы показывать его, а не «registry.xlsx»
+    # исходное имя загруженного файла - чтобы показывать его, а не «registry.xlsx»
     return _registry_path().with_name(_registry_path().name + ".source")
 
 
@@ -390,10 +390,10 @@ def index_status():
 
 @app.post("/api/index/upload", dependencies=ADMIN)
 async def index_upload(request: Request, filename: str = "registry.xlsx"):
-    """Тело запроса — сам файл Excel. Сохраняет его и запускает пересборку в фоне."""
+    """Тело запроса - сам файл Excel. Сохраняет его и запускает пересборку в фоне."""
     name = Path(filename).name
     if not name.lower().endswith(EXCEL_SUFFIXES):
-        raise HTTPException(status_code=422, detail="Нужен файл .xlsx (старый .xls — "
+        raise HTTPException(status_code=422, detail="Нужен файл .xlsx (старый .xls - "
                             "пересохраните в Excel как «Книга Excel (.xlsx)»)")
     if JOB.running or _upload_lock.locked():
         raise HTTPException(status_code=409, detail="Сборка индекса уже идёт")
@@ -412,7 +412,7 @@ async def index_upload(request: Request, filename: str = "registry.xlsx"):
         if size > limit or not size:
             part.unlink(missing_ok=True)
             raise HTTPException(status_code=413 if size else 422,
-                                detail="Файл слишком большой (предел — PPU_MAX_UPLOAD_MB в .env)"
+                                detail="Файл слишком большой (предел - PPU_MAX_UPLOAD_MB в .env)"
                                 if size else "Пустой файл")
         part.replace(target)
         _source_file().write_text(name, encoding="utf-8")

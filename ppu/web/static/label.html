@@ -90,7 +90,8 @@ footer button:hover { border-color: var(--accent); }
 </footer>
 <script>
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+// все тире и прочерки (в том числе из текстов реестра) показываем обычным "-"
+const esc = (s) => String(s ?? "").replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // Одни и те же определения у всех разметчиков
 const OPTIONS = [
@@ -103,7 +104,7 @@ const OPTIONS = [
 ];
 const ENTITY = { workshops: "цех", sites: "участок", places: "", projects: "проект", models: "модель", inventory: "инв. №" };
 let current = null;
-// Пароль администратора — тот же, что на /admin; хранится только в этой вкладке
+// Пароль администратора - тот же, что на /admin; хранится только в этой вкладке
 const TOKEN_KEY = "ppu_admin_token";
 function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
 function setToken(v) { try { v ? sessionStorage.setItem(TOKEN_KEY, v) : sessionStorage.removeItem(TOKEN_KEY); } catch {} }
@@ -123,8 +124,8 @@ function showLogin(msg) {
     load();
   });
 }
-const history = [];  // размеченные в этой сессии — для «назад»
-// ?review=1 — проверка меток, которые поставила LLM
+const history = [];  // размеченные в этой сессии - для «назад»
+// ?review=1 - проверка меток, которые поставила LLM
 const REVIEW = new URLSearchParams(location.search).has("review");
 const TITLE = Object.fromEntries(OPTIONS.map(([, code, title]) => [code, title]));
 if (REVIEW) document.querySelector("header h1").textContent = "Проверка разметки LLM";
@@ -151,12 +152,12 @@ function show(data) {
       ? `<div class="done"><h2>Все метки LLM проверены</h2>
           <p><a href="/admin#calib">Подобрать и применить пороги</a></p></div>`
       : `<div class="done"><h2>Все пары размечены</h2>
-          <p><a href="/admin#calib">Подобрать и применить пороги</a> — или там же добавить ещё пар.</p></div>`;
+          <p><a href="/admin#calib">Подобрать и применить пороги</a> - или там же добавить ещё пар.</p></div>`;
   } else {
     const llm = current.label_by === "llm"
       ? `<div class="llm-note">LLM ответила: <b>${esc(TITLE[current.label] || current.label)}</b>${
-          current.label_why ? ` — ${esc(current.label_why)}` : ""}
-          <br><small>Согласны — нажмите тот же ответ, не согласны — выберите свой.</small></div>` : "";
+          current.label_why ? ` - ${esc(current.label_why)}` : ""}
+          <br><small>Согласны - нажмите тот же ответ, не согласны - выберите свой.</small></div>` : "";
     $("#main").innerHTML = llm + record(current.a, "ППУ A") + record(current.b, "ППУ B");
   }
   document.querySelectorAll("footer button[data-code]").forEach((b) =>
@@ -204,7 +205,7 @@ $("#buttons").addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
-  if (e.target.closest("input, textarea")) return;  // ввод пароля — не разметка
+  if (e.target.closest("input, textarea")) return;  // ввод пароля - не разметка
   const opt = OPTIONS.find(([key]) => key === e.key);
   if (opt) { e.preventDefault(); label(opt[1]); }
   else if (e.key === "Backspace") { e.preventDefault(); back(); }

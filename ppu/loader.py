@@ -28,7 +28,7 @@ COLUMNS = {
     "date_effect": ["дата ээ", "eeapprovaldate"],
 }
 REQUIRED = ("name", "before", "after", "proposal")
-# в базе колонки «Предложения» может не быть — без неё запись всё равно полноценная
+# в базе колонки «Предложения» может не быть - без неё запись всё равно полноценная
 DB_REQUIRED = ("name", "before", "after")
 HEADER_SCAN_ROWS = 10
 
@@ -78,7 +78,7 @@ def records_from_rows(header, rows, first_row: int = 1, id_prefix: str = "row",
                       required: tuple[str, ...] = REQUIRED) -> list[dict]:
     """Строки таблицы (Excel или SQL) -> записи с каноническими полями.
 
-    `id` — регистрационный номер, а если его нет — `<id_prefix><номер строки>`.
+    `id` - регистрационный номер, а если его нет - `<id_prefix><номер строки>`.
     """
     mapping = mapping if mapping is not None else _match_columns(header)
     missing = [f for f in required if f not in mapping]
@@ -105,7 +105,7 @@ def load_registry(path: str | Path) -> list[dict]:
     """Строки реестра как словари с каноническими полями.
 
     У каждой записи есть `id`: регистрационный номер, а если его нет
-    (ещё не зарегистрированные ППУ) — `row<номер строки>`.
+    (ещё не зарегистрированные ППУ) - `row<номер строки>`.
     """
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:

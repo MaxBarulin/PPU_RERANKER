@@ -8,12 +8,12 @@
 Вместо людей пары может разметить LLM-судья (кнопка на /admin, llm_label_pairs):
 те же определения, метки помечаются by=llm, человек может их поправить на /label.
 
-То же — из браузера: страница /admin, раздел «Калибровка порогов».
+То же - из браузера: страница /admin, раздел «Калибровка порогов».
 
-Пары — запись реестра и её ближайший сосед по векторам. Все векторы уже
+Пары - запись реестра и её ближайший сосед по векторам. Все векторы уже
 лежат в индексе, поэтому выборка не обращается к моделям. Чтобы разметка
 покрыла всю зону, где принимается решение, пары берутся поровну из полос
-близости (dense) — иначе почти все были бы «далеко».
+близости (dense) - иначе почти все были бы «далеко».
 
 Всё локально: тексты реестра никуда не отправляются.
 """
@@ -36,7 +36,7 @@ from .search import dense_scores, place_relation
 CALIB_DIR = Path("data/calib")
 BINS = (0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 1.01)
 NEIGHBOURS = 5
-# Разметка: код -> подпись. Повтор и другое подразделение — «та же идея»
+# Разметка: код -> подпись. Повтор и другое подразделение - «та же идея»
 LABELS = {
     "repeat": "повтор",
     "other_place": "то же, другое подразделение",
@@ -53,7 +53,7 @@ _labels_lock = threading.Lock()
 
 def _pair_features(index: Index, i: int, j: int) -> dict:
     q_vecs = {v: index.vectors[v][i] for v in VIEWS if index.masks[v][i]}
-    # считаем по одной строке j — так же, как это сделал бы поиск
+    # считаем по одной строке j - так же, как это сделал бы поиск
     dense, cos, _ = dense_scores(_one(index, j), q_vecs)
     a, b = index.records[i], index.records[j]
     return {
@@ -73,7 +73,7 @@ def _one(index: Index, j: int) -> Index:
 def sample_pairs(index: Index, n_pairs: int, n_queries: int, seed: int,
                  bins: tuple[float, ...] = BINS, exclude: frozenset[str] = frozenset(),
                  progress: Callable[[int, int], None] | None = None) -> tuple[list[dict], dict]:
-    """exclude — pair_id уже выбранных пар (в любом порядке A~B / B~A), их не берём."""
+    """exclude - pair_id уже выбранных пар (в любом порядке A~B / B~A), их не берём."""
     rng = random.Random(seed)
     n = len(index)
     queries = rng.sample(range(n), min(n_queries, n))
@@ -103,7 +103,7 @@ def sample_pairs(index: Index, n_pairs: int, n_queries: int, seed: int,
         for i, j in rng.sample(pool[band], min(per_band, len(pool[band]))):
             a, b = index.records[i], index.records[j]
             pairs.append({"pair_id": f"{a['id']}~{b['id']}", "a": a["id"], "b": b["id"],
-                          "band": f"{bins[band]:.2f}–{min(bins[band + 1], 1):.2f}",
+                          "band": f"{bins[band]:.2f}-{min(bins[band + 1], 1):.2f}",
                           **_pair_features(index, i, j)})
     rng.shuffle(pairs)
     stats = {"queries": len(queries), "candidate_pairs": len(seen),
@@ -117,7 +117,7 @@ def sample_to_dir(index: Index, calib_dir: Path = CALIB_DIR, n_pairs: int = 240,
                   progress: Callable[[int, int], None] | None = None) -> dict:
     """Выбрать пары и записать pairs.jsonl.
 
-    append — добавить к уже выбранным (разметка сохраняется), иначе — заменить.
+    append - добавить к уже выбранным (разметка сохраняется), иначе - заменить.
     Метки хранятся отдельно по pair_id, поэтому и при замене не теряются:
     совпавшие пары останутся размеченными.
     """
@@ -189,7 +189,7 @@ def llm_label_pairs(records_by_id: dict[str, dict], judge, calib_dir: Path = CAL
     """Разметить LLM-судьёй выбранные, но ещё не размеченные пары.
 
     Пары с одной и той же записью A идут одним запросом (как кандидаты к новому
-    ППУ при проверке) — так быстрее. Метки пишутся сразу, поэтому остановка или
+    ППУ при проверке) - так быстрее. Метки пишутся сразу, поэтому остановка или
     обрыв ничего не теряют; повторный запуск продолжит с неразмеченных.
     """
     from .judge import MAX_CANDIDATES
@@ -224,13 +224,13 @@ def llm_label_pairs(records_by_id: dict[str, dict], judge, calib_dir: Path = CAL
             fails_in_row += 1
             if fails_in_row >= max_failures:
                 raise LLMError(f"LLM не отвечает ({e}). Размечено до ошибки: "
-                               f"{sum(counts.values())} пар — они сохранены") from e
+                               f"{sum(counts.values())} пар - они сохранены") from e
             verdicts = {}
         for p in batch:
             v = verdicts.get(p["b"])
             if v:
                 label = LLM_LABELS[v["code"]]
-                # как при проверке ППУ: цех/участок из текста надёжнее — LLM могла не заметить номер
+                # как при проверке ППУ: цех/участок из текста надёжнее - LLM могла не заметить номер
                 if label == "repeat" and p.get("place") == "other":
                     label = "other_place"
                 save_label(p["pair_id"], label, calib_dir, by="llm", why=v["why"])
@@ -247,7 +247,7 @@ def llm_label_pairs(records_by_id: dict[str, dict], judge, calib_dir: Path = CAL
     if counts:
         lines.append(", ".join(f"{names[k]}: {n}" for k, n in counts.most_common()))
     if failed:
-        lines.append(f"Без ответа: {failed} — их можно разметить вручную или запустить LLM ещё раз")
+        lines.append(f"Без ответа: {failed} - их можно разметить вручную или запустить LLM ещё раз")
     return {"count": sum(counts.values()), "total": len(todo), "report": "\n".join(lines)}
 
 
@@ -261,11 +261,11 @@ def fit(rows: list[dict], base: Calibration = DEFAULT_CALIBRATION,
         precision_sure: float = 0.9, recall_flag: float = 0.95) -> tuple[Calibration, list[str]]:
     """Пороги для записей с описанием по размеченным парам.
 
-    same      — максимум F1 для «та же идея» против остального;
-    similar   — ниже него остаётся не больше (1 - recall_flag) «той же идеи»:
+    same      - максимум F1 для «та же идея» против остального;
+    similar   - ниже него остаётся не больше (1 - recall_flag) «той же идеи»:
                 повторы не должны уходить в «уникально»;
-    gray_hi   — от него «та же идея» верна с точностью ≥ precision_sure (выше LLM не нужен);
-    alt       — перебор правила «проблема похожа, решение нет» по F1 для alternative.
+    gray_hi   - от него «та же идея» верна с точностью ≥ precision_sure (выше LLM не нужен);
+    alt       - перебор правила «проблема похожа, решение нет» по F1 для alternative.
     """
     notes = []
     rows = [r for r in rows if r["completeness"] != "name_only"]
@@ -277,7 +277,7 @@ def fit(rows: list[dict], base: Calibration = DEFAULT_CALIBRATION,
     if same.sum() >= 5 and (~same).sum() >= 5:
         f1 = np.array([_f1((same & (dense >= t)).sum(), (~same & (dense >= t)).sum(),
                            (same & (dense < t)).sum()) for t in grid])
-        # середина «плато» лучшего F1, а не его край — устойчивее на новых данных
+        # середина «плато» лучшего F1, а не его край - устойчивее на новых данных
         t_same = float(np.median(grid[f1 >= f1.max() - 1e-9]))
         t_similar = float(np.floor(np.quantile(dense[same], 1 - recall_flag) * 200) / 200)
         prec = [(same & (dense >= t)).sum() / max((dense >= t).sum(), 1) for t in grid]
@@ -289,7 +289,7 @@ def fit(rows: list[dict], base: Calibration = DEFAULT_CALIBRATION,
         notes.append(f"same={t_same:.3f} (F1 {max(f1):.2f}), similar={t_similar:.3f}, "
                      f"gray_hi={t_gray_hi:.3f}")
     else:
-        notes.append("Мало размеченных «та же идея» / остального — пороги same/similar не меняю")
+        notes.append("Мало размеченных «та же идея» / остального - пороги same/similar не меняю")
 
     alt_rows = [r for r in rows if "problem" in r["cos"] and "solution" in r["cos"]]
     is_alt = np.array([r["label"] == "alternative" for r in alt_rows])
@@ -309,7 +309,7 @@ def fit(rows: list[dict], base: Calibration = DEFAULT_CALIBRATION,
         alt = best[1]
         notes.append(f"alt: problem≥{alt[0]}, solution<{alt[1]}, dense≥{alt[2]} (F1 {best[0]:.2f})")
     else:
-        notes.append(f"Мало размеченных альтернатив ({is_alt.sum()}) — правило не меняю")
+        notes.append(f"Мало размеченных альтернатив ({is_alt.sum()}) - правило не меняю")
 
     cal = Calibration(wt, base.name_only, *alt,
                       source=f"разметка реальных пар, {len(rows)} шт., "
@@ -352,7 +352,7 @@ def report(rows: list[dict], current: Calibration, fitted: Calibration, notes: l
     lines.append("\nПодобрано:")
     lines += [f"  {n}" for n in notes]
     lines += _confusion(rows, fitted)
-    lines.append("\n(на тех же парах, по которым подбирали — оценка оптимистичная;"
+    lines.append("\n(на тех же парах, по которым подбирали - оценка оптимистичная;"
                  " чем больше разметки, тем честнее)")
     return "\n".join(lines)
 
@@ -368,7 +368,7 @@ def fit_from_dir(calib_dir: Path = CALIB_DIR) -> tuple[Calibration, str]:
     """Подобрать пороги по разметке; отчёт пишется в fit_report.txt."""
     rows = labeled_rows(calib_dir)
     if not rows:
-        raise ValueError("Нет размеченных пар — сначала выберите пары и разметьте их")
+        raise ValueError("Нет размеченных пар - сначала выберите пары и разметьте их")
     current = active_calibration()
     fitted, notes = fit(rows, base=current)
     text = report(rows, current, fitted, notes)

@@ -11,7 +11,7 @@ def test_scores_returned_in_document_order(monkeypatch):
 
     def fake_post(payload):
         sent.update(payload)
-        # сервер сортирует по убыванию — мы должны вернуть исходный порядок
+        # сервер сортирует по убыванию - мы должны вернуть исходный порядок
         return {"results": [{"index": 1, "relevance_score": 2.0},
                             {"index": 0, "relevance_score": -3.0}]}
 

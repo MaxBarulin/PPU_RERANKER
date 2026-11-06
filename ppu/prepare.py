@@ -23,7 +23,7 @@ def report(records: list[dict]) -> str:
         lines.append(f"  {level:10} {n:6}  ({n / len(records):.0%})")
 
     lines.append("\nСтатусы:")
-    for status, n in Counter(r.get("status") or "—" for r in records).most_common():
+    for status, n in Counter(r.get("status") or "-" for r in records).most_common():
         lines.append(f"  {status:20} {n:6}")
 
     with_effect = [r for r in records if isinstance(r.get("effect"), (int, float))]
@@ -31,7 +31,7 @@ def report(records: list[dict]) -> str:
 
     lens = sorted(len(r["name_clean"].split()) for r in records)
     lines.append(f"Длина названия в словах: медиана {lens[len(lens) // 2]}, "
-                 f"1–3 слова у {sum(n <= 3 for n in lens)} записей")
+                 f"1-3 слова у {sum(n <= 3 for n in lens)} записей")
 
     groups = defaultdict(list)
     for r in records:
@@ -50,7 +50,7 @@ def report(records: list[dict]) -> str:
     for kind, tokens in abbreviation_candidates(texts).items():
         counts = Counter(t for t in tokens if t not in ACRONYMS)
         top = ", ".join(f"{t}×{n}" for t, n in counts.most_common(TOP))
-        lines.append(f"  {kind}: {top or '—'}")
+        lines.append(f"  {kind}: {top or '-'}")
 
     return "\n".join(lines)
 

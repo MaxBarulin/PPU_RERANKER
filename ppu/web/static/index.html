@@ -153,11 +153,11 @@ button.small { padding: 5px 12px; font-size: 13px; }
     <form id="form">
       <label for="name">Наименование</label>
       <input id="name" name="name" required minlength="3" autocomplete="off">
-      <label for="before">До улучшения <small>— в чём проблема</small></label>
+      <label for="before">До улучшения <small>- в чём проблема</small></label>
       <textarea id="before" name="before"></textarea>
-      <label for="after">После улучшения <small>— что стало</small></label>
+      <label for="after">После улучшения <small>- что стало</small></label>
       <textarea id="after" name="after"></textarea>
-      <label for="proposal">Предложения <small>— что сделать</small></label>
+      <label for="proposal">Предложения <small>- что сделать</small></label>
       <textarea id="proposal" name="proposal"></textarea>
       <div class="actions">
         <button type="submit" id="go">Проверить</button>
@@ -177,7 +177,8 @@ const PLACE = { same: "то же место", other: "другое место", 
 let queryHasPlace = false, llmAvailable = false, llmExternal = null, lastBody = null;
 const ENTITY = { workshops: "цех", sites: "участок", places: "", projects: "проект", models: "модель", inventory: "инв. №" };
 
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+// все тире и прочерки (в том числе из текстов реестра) показываем обычным "-"
+const esc = (s) => String(s ?? "").replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function chips(entities) {
@@ -224,7 +225,7 @@ function candidate(c) {
       <div class="badges"><span class="badge r-${c.relation}">${RELATION[c.relation]}</span>
         ${c.uncertain ? '<span class="unsure">не уверен</span>' : ""}</div>
     </summary>
-    <div class="details">${body || '<p class="sub">Описания нет — в реестре «См.вложение»</p>'}</div>
+    <div class="details">${body || '<p class="sub">Описания нет - в реестре «См.вложение»</p>'}</div>
   </details>`;
 }
 
@@ -236,10 +237,10 @@ function render(res) {
   const more = res.more || [];
   const tp = res.topic || { words: [] };
   const words = tp.words.map((x) => `<button type="button" class="word" data-word="${esc(x.word)}"
-      title="Показать все ППУ со словом «${esc(x.word)}»">«${esc(x.word)}» — ${x.count} ППУ</button>`).join("");
+      title="Показать все ППУ со словом «${esc(x.word)}»">«${esc(x.word)}» - ${x.count} ППУ</button>`).join("");
   const topic = `<div class="topic">${tp.close ? `Похожих по смыслу: <b>${tp.close}</b>` : "Похожих по смыслу нет"}${
       tp.more ? ` · ещё по теме: <b>${tp.more}</b> <span class="sub">(«Показать ещё» внизу)</span>` : ""}${
-      words ? `<div class="words">Во всей базе: ${words} <span>— нажмите, чтобы увидеть все</span></div>` : ""}</div>
+      words ? `<div class="words">Во всей базе: ${words} <span>- нажмите, чтобы увидеть все</span></div>` : ""}</div>
     <div id="word-list"></div>`;
   $("#out").innerHTML = `
     ${res.candidates.length || more.length || words ? topic : ""}
@@ -303,7 +304,7 @@ async function showWord(btn) {
                    x.effect ? "ЭЭ " + Number(x.effect).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · ");
       const body = block("До улучшения", x.before) + block("После улучшения", x.after) + block("Предложения", x.proposal);
       return `<details><summary>${titleLine(x.id, x.name, x.status)}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</summary>
-        <div class="details">${body || '<p class="sub">Описания нет — в реестре «См.вложение»</p>'}</div></details>`;
+        <div class="details">${body || '<p class="sub">Описания нет - в реестре «См.вложение»</p>'}</div></details>`;
     }).join("");
     box.innerHTML = `<div class="wl"><div class="wl-head"><b>Все ППУ со словом «${esc(d.word)}»: ${d.count}</b>
         <button type="button" class="ghost small" id="wl-close">Скрыть</button></div>
@@ -345,7 +346,7 @@ fetch("/api/info").then((r) => r.json()).then((i) => {
   llmExternal = i.llm && !i.llm_local ? i.llm_host : null;
   if (!i.index) {
     $("#info").textContent = "база ещё не загружена";
-    $("#out").innerHTML = '<div class="panel empty">Базы ППУ ещё нет — <a href="/admin">загрузите реестр</a></div>';
+    $("#out").innerHTML = '<div class="panel empty">Базы ППУ ещё нет - <a href="/admin">загрузите реестр</a></div>';
     return;
   }
   $("#info").textContent = `в реестре ${i.records.toLocaleString("ru-RU")} ППУ · индекс от ${(i.built || "").replace("T", " ")}`

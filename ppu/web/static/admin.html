@@ -104,7 +104,7 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
   </section>
 
   <div id="content" hidden>
-  <div class="error" id="no-pass" hidden>Пароль администратора не задан — менять базу и калибровку
+  <div class="error" id="no-pass" hidden>Пароль администратора не задан - менять базу и калибровку
     может любой, кто откроет эту страницу. Задайте <code>PPU_ADMIN_TOKEN=...</code> в <code>.env</code>
     на сервере и перезапустите веб.</div>
   <section class="panel">
@@ -132,7 +132,7 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
         <button type="button" class="ghost" id="rebuild" hidden>Пересобрать из последнего файла</button>
       </div>
       <p class="hint">Лист и колонки находятся сами: нужны «Наименование», «До улучшения»,
-        «После улучшения», «Предложения». Векторы уже посчитанных записей берутся из кэша —
+        «После улучшения», «Предложения». Векторы уже посчитанных записей берутся из кэша -
         считаются только новые и изменённые. Пока идёт сборка, проверка ППУ работает по старой базе.</p>
     </form>
   </section>
@@ -152,8 +152,8 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
           <button type="button" id="sample">Выбрать пары</button>
           <button type="button" class="link" id="resample" hidden>выбрать заново</button>
         </div>
-        <p class="hint">Пары — ППУ из реестра и их ближайшие соседи, поровну по степени похожести.
-          240 пар вручную размечаются примерно за 40–60 минут. Можно добавлять ещё — сделанная разметка сохраняется.</p>
+        <p class="hint">Пары - ППУ из реестра и их ближайшие соседи, поровну по степени похожести.
+          240 пар вручную размечаются примерно за 40-60 минут. Можно добавлять ещё - сделанная разметка сохраняется.</p>
         <div id="sample-job"></div>
       </div></div>
       <div class="step"><div class="num">2</div><div>
@@ -186,13 +186,14 @@ pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); border: 1px
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+// все тире и прочерки (в том числе из текстов реестра) показываем обычным "-"
+const esc = (s) => String(s ?? "").replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtTime = (s) => (s || "").replace("T", " ");
 let timer = null;
 
 // Пароль хранится только в этой вкладке (sessionStorage) и уходит в каждый запрос.
-// encodeURIComponent — в HTTP-заголовке нельзя кириллицу, сервер раскодирует.
+// encodeURIComponent - в HTTP-заголовке нельзя кириллицу, сервер раскодирует.
 const TOKEN_KEY = "ppu_admin_token";
 function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } }
 function setToken(v) { try { v ? sessionStorage.setItem(TOKEN_KEY, v) : sessionStorage.removeItem(TOKEN_KEY); } catch {} }
@@ -214,8 +215,8 @@ async function loadInfo() {
     $("#current").innerHTML = i.index
       ? `<dt>Записей</dt><dd>${i.records.toLocaleString("ru-RU")}</dd>
          <dt>Собрана</dt><dd>${esc(fmtTime(i.built))}</dd>
-         <dt>Из файла</dt><dd>${esc(i.source || "—")}</dd>
-         <dt>Модель векторов</dt><dd>${esc(i.embedding_model || "—")}</dd>`
+         <dt>Из файла</dt><dd>${esc(i.source || "-")}</dd>
+         <dt>Модель векторов</dt><dd>${esc(i.embedding_model || "-")}</dd>`
       : `<dt>Базы ещё нет</dt><dd>загрузите реестр ниже</dd>`;
   } catch (e) {
     $("#current").innerHTML = `<dt>Ошибка</dt><dd>${esc(e.message)}</dd>`;
@@ -246,7 +247,7 @@ function renderJob(j) {
     ${j.source ? `<span class="hint">· ${esc(j.source)}</span>` : ""}</h2>`;
   if (running) {
     box.innerHTML = head + `
-      <div>${esc(j.stage)}${j.total ? ` — ${j.done.toLocaleString("ru-RU")} из ${j.total.toLocaleString("ru-RU")}` : ""}</div>
+      <div>${esc(j.stage)}${j.total ? ` - ${j.done.toLocaleString("ru-RU")} из ${j.total.toLocaleString("ru-RU")}` : ""}</div>
       <div class="bar ${pct === null ? "busy" : ""}"><div style="width:${pct ?? 0}%"></div></div>
       <div class="hint">идёт ${elapsed(j.started)} · страницу можно закрыть, сборка продолжится</div>`;
   } else if (j.status === "done") {
@@ -257,7 +258,7 @@ function renderJob(j) {
   } else {
     box.innerHTML = head + `
       <div class="error">${esc(j.error)}</div>
-      <p class="hint">Если оборвалось на векторах — проверьте, что сервер эмбеддингов запущен
+      <p class="hint">Если оборвалось на векторах - проверьте, что сервер эмбеддингов запущен
         (EMB_BASE_URL в .env), и нажмите «Пересобрать»: посчитанное возьмётся из кэша.</p>`;
   }
 }
@@ -270,7 +271,7 @@ async function poll() {
     if (j.status === "running") { timer = setTimeout(poll, 1500); return; }
     if (j.status === "done") loadInfo();
   } catch (e) {
-    if (!$("#content").hidden) timer = setTimeout(poll, 5000);  // веб перезапускается — попробуем ещё
+    if (!$("#content").hidden) timer = setTimeout(poll, 5000);  // веб перезапускается - попробуем ещё
   }
 }
 
@@ -307,9 +308,9 @@ $("#db-check").addEventListener("click", async () => {
     if (r.missing.length) {
       out.innerHTML = `<div class="error db-check">Подключение есть (строк: ${n(r.rows)}), но не найдены колонки:
         <b>${esc(r.missing.join(", "))}</b>.<ul><li>Колонки в таблице: ${esc(r.columns.join(", "))}</li>
-        <li>Нужен запрос с переименованием — DB_QUERY_FILE в .env (см. docs/linux-server.md)</li></ul></div>`;
+        <li>Нужен запрос с переименованием - DB_QUERY_FILE в .env (см. docs/linux-server.md)</li></ul></div>`;
     } else {
-      const sample = r.sample.map((x) => `<li>№ ${esc(x.id)} · ${esc(x.name)} · ${esc(x.status || "—")} · ${esc(x.date_submitted || "—")}</li>`).join("");
+      const sample = r.sample.map((x) => `<li>№ ${esc(x.id)} · ${esc(x.name)} · ${esc(x.status || "-")} · ${esc(x.date_submitted || "-")}</li>`).join("");
       out.innerHTML = `<div class="ok db-check">Подключение есть: ${n(r.rows)} строк, ППУ: <b>${n(r.records)}</b>.
         <ul><li>Узнаны колонки: ${mapped}</li>
         ${r.not_used.length ? `<li>Не используются: ${esc(r.not_used.join(", "))}</li>` : ""}
@@ -373,11 +374,11 @@ async function loadCalib() {
     const box = llmJob ? $("#llm-job") : $("#sample-job");
     (llmJob ? $("#sample-job") : $("#llm-job")).innerHTML = "";
     if (running) {
-      // оценка оставшегося времени — по скорости с начала разметки
+      // оценка оставшегося времени - по скорости с начала разметки
       const spent = (Date.now() - new Date(j.started)) / 1000;
       const left = llmJob && j.done > 0 ? Math.round(spent / j.done * (j.total - j.done) / 60) : null;
       box.innerHTML = `<div class="bar"><div style="width:${j.total ? Math.round(100 * j.done / j.total) : 0}%"></div></div>
-        <div class="hint">${esc(j.stage)}${j.total ? ` — ${j.done} из ${j.total}` : ""}${
+        <div class="hint">${esc(j.stage)}${j.total ? ` - ${j.done} из ${j.total}` : ""}${
           left !== null ? ` · осталось примерно ${left < 1 ? "меньше минуты" : left + " мин"}` : ""}</div>`;
       calibTimer = setTimeout(loadCalib, 1500);
     } else if (j.status === "done") {
@@ -420,7 +421,7 @@ async function fit(apply) {
 }
 
 $("#llm-label").addEventListener("click", async () => {
-  if (!confirm("LLM разметит все ещё не размеченные пары. На процессоре 240 пар могут размечаться около часа, на видеокарте — минуты. Остановить можно в любой момент, размеченное сохранится. Начать?")) return;
+  if (!confirm("LLM разметит все ещё не размеченные пары. На процессоре 240 пар могут размечаться около часа, на видеокарте - минуты. Остановить можно в любой момент, размеченное сохранится. Начать?")) return;
   try {
     await api("/api/calib/llm", { method: "POST", headers: headers() });
   } catch (e) {
@@ -488,7 +489,7 @@ $("#logout").addEventListener("click", (ev) => { ev.preventDefault(); showLogin(
     await api("/api/admin/check", { method: "POST" });
     showContent(true);
   } catch (e) {
-    if ($("#login").hidden) showLogin("Сервер недоступен — обновите страницу");
+    if ($("#login").hidden) showLogin("Сервер недоступен - обновите страницу");
   }
 })();
 </script>

@@ -4,11 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 PIDFILE=logs/web.pid
 
-# PID из файла может после перезагрузки достаться другому процессу — сверяем команду
+# PID из файла может после перезагрузки достаться другому процессу - сверяем команду
 if ! { [ -f "$PIDFILE" ] && ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null | grep -q "ppu.web"; }; then
   rm -f "$PIDFILE"
   echo "Веб не запущен."
-  pgrep -af "ppu.web" && echo "↑ похоже на запущенные вручную — останови: kill <PID>" || true
+  pgrep -af "ppu.web" && echo "↑ похоже на запущенные вручную - останови: kill <PID>" || true
   exit 0
 fi
 PID=$(cat "$PIDFILE")

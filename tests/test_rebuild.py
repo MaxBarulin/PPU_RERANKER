@@ -67,7 +67,7 @@ def test_embedder_progress_and_cache(tmp_path):
     assert calls == [2, 1] and seen[0] == (0, 3) and seen[-1] == (3, 3)
     seen.clear()
     e(["раз", "четыре"], progress=lambda d, t: seen.append((d, t)))
-    assert calls == [2, 1, 1] and seen == [(1, 2), (2, 2)]  # «раз» — из кэша
+    assert calls == [2, 1, 1] and seen == [(1, 2), (2, 2)]  # «раз» - из кэша
 
 
 def xlsx_bytes(rows):
@@ -163,7 +163,7 @@ def test_upload_token(app_client, monkeypatch):
             break
         time.sleep(0.05)
     assert c.post("/api/index/rebuild").status_code == 403
-    # проверка ППУ и страницы — без пароля
+    # проверка ППУ и страницы - без пароля
     assert c.get("/api/info").status_code == 200
     assert c.post("/api/assess", json={"name": "Ручки для напильников"}).status_code == 200
     assert c.get("/admin").status_code == 200 and c.get("/label").status_code == 200
@@ -175,7 +175,7 @@ def test_without_token_everything_open(app_client):
 
 
 def test_no_numpy_handles_left(tmp_path):
-    # load_index закрывает vectors.npz — папку индекса можно заменить (важно на Windows)
+    # load_index закрывает vectors.npz - папку индекса можно заменить (важно на Windows)
     rebuild(RAW, tmp_path / "index", FakeEmbedder())
     index = load_index(tmp_path / "index")
     (tmp_path / "index").rename(tmp_path / "moved")

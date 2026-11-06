@@ -10,7 +10,7 @@ set NGL=99
 REM Потоки CPU: на работе поставь число физических ядер
 set THREADS=4
 REM Пара «запрос + документ» должна целиком влезать в один батч:
-REM CTX = BATCH = UBATCH. 8192 — максимум bge-reranker-v2-m3
+REM CTX = BATCH = UBATCH. 8192 - максимум bge-reranker-v2-m3
 set CTX=8192
 set HOST=127.0.0.1
 set PORT=8082
@@ -42,7 +42,7 @@ llama-server.exe -m "%MODEL%" --reranking -ngl %NGL% -t %THREADS% -c %CTX% -b %C
 echo.
 echo Сервер остановлен. Код выхода: %errorlevel%
 if "%errorlevel%"=="-1073741795" echo  - процессор не поддерживает инструкции этой сборки (AVX/AVX2^). Скачай сборку win-cpu-x64.
-if "%errorlevel%"=="-1073741515" echo  - не хватает DLL: распакуй архив llama.cpp целиком; для CUDA-сборки нужны ещё cudart-DLL. Без видеокарты — сборка win-cpu-x64.
-if "%errorlevel%"=="-1073741819" echo  - аварийное падение (access violation^). Если падает даже "llama-server.exe --version" — обнови Microsoft Visual C++ Redistributable x64 (старый msvcp140.dll^). Иначе — не хватило памяти: уменьши CTX (например, 4096^).
+if "%errorlevel%"=="-1073741515" echo  - не хватает DLL: распакуй архив llama.cpp целиком; для CUDA-сборки нужны ещё cudart-DLL. Без видеокарты - сборка win-cpu-x64.
+if "%errorlevel%"=="-1073741819" echo  - аварийное падение (access violation^). Если падает даже "llama-server.exe --version" - обнови Microsoft Visual C++ Redistributable x64 (старый msvcp140.dll^). Иначе - не хватило памяти: уменьши CTX (например, 4096^).
 echo Причина обычно написана в строках выше (error / failed / out of memory^).
 pause

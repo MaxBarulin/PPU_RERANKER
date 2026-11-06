@@ -4,13 +4,13 @@
     python -m ppu.evaluate --data data/synth --rerank-url http://127.0.0.1:8082/v1
 
 Что меряем:
-- recall@k — находит ли поиск исходное ППУ среди первых k кандидатов
+- recall@k - находит ли поиск исходное ППУ среди первых k кандидатов
   (по типу связи и по полноте записи в реестре);
-- близость (dense) лучшего кандидата по типам связи — по ней ставятся пороги;
+- близость (dense) лучшего кандидата по типам связи - по ней ставятся пороги;
 - матрица вердиктов: какой ответ дала система на каждый тип связи;
 - (с --llm) матрица после LLM-судьи для спорных случаев и сколько это
   стоит по времени на рабочем CPU;
-- (с --rerank-url) то же для реранкера — для перепроверки на реальных данных.
+- (с --rerank-url) то же для реранкера - для перепроверки на реальных данных.
 
     python -m ppu.evaluate --data data/synth --llm --llm-model qwen/qwen3.6-35b-a3b \
         --llm-extra '{"reasoning": {"effort": "low"}}' --llm-max-tokens 4000
@@ -90,7 +90,7 @@ def run(index, queries, embedder, reranker=None, judge=None, top_k: int = 20) ->
 def _quantiles(values) -> str:
     v = [x for x in values if x is not None]
     if not v:
-        return "—"
+        return "-"
     p10, p50, p90 = np.percentile(v, [10, 50, 90])
     return f"p10 {p10:.3f}  p50 {p50:.3f}  p90 {p90:.3f}  (n={len(v)})"
 
@@ -103,7 +103,7 @@ def _by_completeness(rows, label):
 
 
 def _verdict_matrix(by_label: dict, key: str, title: str) -> list[str]:
-    lines = [f"\n{title} (доля запросов; * — ожидаемый ответ):",
+    lines = [f"\n{title} (доля запросов; * - ожидаемый ответ):",
              f"  {'связь':12} {'полнота':10} " + " ".join(f"{v[:9]:>10}" for v in VERDICTS)
              + f" {'нужен LLM':>10}"]
     for label in LABELS:
@@ -168,7 +168,7 @@ def report(rows: list[dict], prefill_tps: float = 40, decode_tps: float = 10) ->
         lines += _llm_cost(rows, prefill_tps, decode_tps)
 
     if any("max_prob" in r for r in rows):
-        lines.append("\nРеранкер: вероятность для исходного ППУ (novel — максимум по кандидатам):")
+        lines.append("\nРеранкер: вероятность для исходного ППУ (novel - максимум по кандидатам):")
         for label in LABELS[:-1]:
             lines.append(f"  {label:12} {_quantiles(r.get('target_prob') for r in by_label[label])}")
         lines.append(f"  {'novel':12} {_quantiles(r.get('max_prob') for r in by_label['novel'])}")

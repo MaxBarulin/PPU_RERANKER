@@ -11,7 +11,7 @@ DIM = 512
 
 
 def fake_embed(texts):
-    """Мешок лемм, захэшированный в вектор: похожие слова — похожие векторы."""
+    """Мешок лемм, захэшированный в вектор: похожие слова - похожие векторы."""
     out = np.zeros((len(texts), DIM), dtype=np.float32)
     for i, t in enumerate(texts):
         for lm in lemmas(t):

@@ -1,4 +1,4 @@
-"""Этап 3: вердикт по новому ППУ — было ли такое и насколько оно уникально.
+"""Этап 3: вердикт по новому ППУ - было ли такое и насколько оно уникально.
 
     python -m ppu.assess --name "..." --before "..." --after "..." --proposal "..."
     python -m ppu.assess --json new_ppu.json
@@ -8,7 +8,7 @@
 на «повтор / другое подразделение / альтернатива / похоже / далеко».
 
 Почему не реранкер: на синтетике (ppu.evaluate) bge-reranker-v2-m3 мерил
-«про ту же тему», а не «та же идея» — новые ППУ получали у него такие же
+«про ту же тему», а не «та же идея» - новые ППУ получали у него такие же
 оценки, как дубли. Косинус bge-m3 разделяет заметно лучше.
 
 Пороги подобраны на синтетике и разные для записей с описанием и
@@ -31,15 +31,15 @@ from .search import make_query, search
 
 @dataclass(frozen=True)
 class Thresholds:
-    same: float      # ≥ — та же идея (повтор или тиражирование)
-    similar: float   # ≥ — похожее, стоит посмотреть
-    gray_lo: float   # [gray_lo, gray_hi) — уверенности нет, нужен LLM
+    same: float      # ≥ - та же идея (повтор или тиражирование)
+    similar: float   # ≥ - похожее, стоит посмотреть
+    gray_lo: float   # [gray_lo, gray_hi) - уверенности нет, нужен LLM
     gray_hi: float
 
 
-# Синтетика, запись с описанием: при 0.72 ловим 93% «та же идея», новых — 0%
+# Синтетика, запись с описанием: при 0.72 ловим 93% «та же идея», новых - 0%
 WITH_TEXT = Thresholds(same=0.72, similar=0.65, gray_lo=0.65, gray_hi=0.76)
-# «Только название»: дубли и новые перекрываются, уверенно — только очень близкие
+# «Только название»: дубли и новые перекрываются, уверенно - только очень близкие
 NAME_ONLY = Thresholds(same=0.76, similar=0.62, gray_lo=0.62, gray_hi=0.76)
 # Та же проблема, но решение другое: у дублей косинус решений почти всегда ≥ 0.77.
 # На синтетике ловит ~половину альтернатив при ~10% ложных на новых ППУ;
@@ -47,7 +47,7 @@ NAME_ONLY = Thresholds(same=0.76, similar=0.62, gray_lo=0.62, gray_hi=0.76)
 ALT_PROBLEM_MIN = 0.75
 ALT_SOLUTION_MAX = 0.75
 ALT_DENSE_MIN = 0.65
-# Шкала «уникальности»: близость ниже FLOOR — совсем другое ППУ
+# Шкала «уникальности»: близость ниже FLOOR - совсем другое ППУ
 FLOOR = 0.55
 
 
@@ -66,7 +66,7 @@ DEFAULT_CALIBRATION = Calibration(WITH_TEXT, NAME_ONLY, ALT_PROBLEM_MIN, ALT_SOL
 
 
 def load_calibration(path: str | Path) -> Calibration:
-    """Пороги из файла (пишет ppu.calibrate); чего нет в файле — по умолчанию."""
+    """Пороги из файла (пишет ppu.calibrate); чего нет в файле - по умолчанию."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     d, alt = DEFAULT_CALIBRATION, data.get("alt", {})
     return Calibration(
@@ -98,13 +98,13 @@ VERDICT_TEXT = {
     "repeat": "Такое ППУ уже было",
     "other_place": "Такая идея уже была в другом подразделении (тиражирование)",
     "alternative": "Эта проблема уже поднималась, но с другим решением",
-    "similar": "Есть похожие ППУ — стоит сравнить",
+    "similar": "Есть похожие ППУ - стоит сравнить",
     "unique": "Похожих ППУ не найдено",
 }
 VERDICT_ORDER = ("repeat", "other_place", "alternative", "similar")
 # Уникальность после LLM: по самой близкой связи среди проверенных кандидатов
 # Подписи, которые сервис сам добавляет в полный текст («Проблема: …», «Решение: …»),
-# и слова, которые есть в большой доле записей, — не показываем как «общие слова»
+# и слова, которые есть в большой доле записей, - не показываем как «общие слова»
 SERVICE_WORDS = {"проблема", "решение"}
 COMMON_SHARE = 0.25
 TOPIC_WORDS = 3  # сколько ключевых слов запроса показывать со счётчиком по всей базе
@@ -130,7 +130,7 @@ def relation(cand: dict, cal: Calibration = DEFAULT_CALIBRATION) -> str:
 
 
 def _closeness(cand: dict, cal: Calibration) -> float:
-    """0 — совсем другое, 1 — точно та же идея (порог same ≈ 0.7)."""
+    """0 - совсем другое, 1 - точно та же идея (порог same ≈ 0.7)."""
     t = _thresholds(cand, cal)
     top = t.same + 0.08
     return min(max((cand["dense"] - FLOOR) / (top - FLOOR), 0.0), 1.0)
@@ -143,7 +143,7 @@ def _verdict(cands: list[dict]) -> str:
 
 def _apply_judge(res: dict, query: dict, judge, by_id: dict) -> None:
     """Переоценивает верхних кандидатов LLM-судьёй и пересчитывает вердикт."""
-    # все карточки основного списка (похожие по смыслу; если таких нет — первые по поиску);
+    # все карточки основного списка (похожие по смыслу; если таких нет - первые по поиску);
     # «Показать ещё» не проверяем
     to_judge = res["candidates"]
     verdicts = judge(query, [dict(c, record=by_id[c["id"]]) for c in to_judge])
@@ -172,9 +172,9 @@ def _apply_judge(res: dict, query: dict, judge, by_id: dict) -> None:
 def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
            exclude_ids: tuple[str, ...] = (), judge=None, force_judge: bool = False,
            cal: Calibration | None = None) -> dict:
-    """Вердикт по векторам; спорный (или force_judge) — уточняется judge, если он передан.
+    """Вердикт по векторам; спорный (или force_judge) - уточняется judge, если он передан.
 
-    cal — пороги; по умолчанию data/thresholds.json (если есть) или синтетика.
+    cal - пороги; по умолчанию data/thresholds.json (если есть) или синтетика.
     """
     cal = cal or active_calibration()
     cands = search(index, query, embed, top_k=top_k, exclude_ids=exclude_ids)
@@ -191,7 +191,7 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         c["date_submitted"] = rec.get("date_submitted")
     cands.sort(key=lambda c: (c["score"], c["dense"]), reverse=True)
 
-    # какие редкие слова запроса есть в записи — чтобы было видно, почему она найдена
+    # какие редкие слова запроса есть в записи - чтобы было видно, почему она найдена
     bm25 = index.bm25
     # цифры (номера цехов и т.п.) как «общие слова» ничего не объясняют
     q_lemmas = {w for w in lemmas(view_texts(query)["full"])
@@ -201,13 +201,13 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         c["matched"] = sorted(common, key=lambda w: -bm25.idf.get(w, 0))[:4]
 
     verdict = _verdict(cands)
-    # если всё «далеко», первыми — найденные и по словам, и по смыслу (порядок поиска)
+    # если всё «далеко», первыми - найденные и по словам, и по смыслу (порядок поиска)
     by_search = sorted(cands, key=lambda c: -c["rrf"])
     shown = [c for c in cands if c["relation"] != "far"] or by_search[:3]
     shown_ids = {c["id"] for c in shown}
-    # остальное найденное — по смыслу далеко, но может пригодиться (общие слова, та же тема);
-    # в вердикт не входит, в интерфейсе — под «Показать ещё»
-    # без общих слов и с нулевой близостью — просто шум, не показываем; остальное — всё
+    # остальное найденное - по смыслу далеко, но может пригодиться (общие слова, та же тема);
+    # в вердикт не входит, в интерфейсе - под «Показать ещё»
+    # без общих слов и с нулевой близостью - просто шум, не показываем; остальное - всё
     more = [c for c in by_search if c["id"] not in shown_ids and (c["matched"] or c["score"] > 0)]
     res = {
         "verdict": verdict,
@@ -235,16 +235,16 @@ def format_assessment(query: dict, res: dict) -> str:
     lines = [f"Запрос: {query['name_clean']}  [{query['completeness']}]",
              f"Вердикт: {res['verdict_text']}",
              f"Уникальность: {res['uniqueness']:.2f}"
-             + ("  — спорно, нужен LLM" if res["needs_llm"] else "")
+             + ("  - спорно, нужен LLM" if res["needs_llm"] else "")
              + ("  (уточнено LLM)" if res["judged_by"] == "llm" else ""),
              "",
              f"{'#':>2} {'id':>7} {'близ.':>5} {'dense':>6}  {'связь':30} {'статус':14} наименование"]
     for k, c in enumerate(res["candidates"], 1):
         lines.append(f"{k:>2} {c['id']:>7} {c['score']:5.2f} {c['dense']:6.3f}  "
-                     f"{RELATION_TEXT[c['relation']]:30} {(c['status'] or '—')[:14]:14} "
+                     f"{RELATION_TEXT[c['relation']]:30} {(c['status'] or '-')[:14]:14} "
                      f"{(c['name'] or '')[:70]}")
         if "llm" in c:
-            lines.append(f"{'':>17}LLM: {c['llm']['code']} — {c['llm']['why']}"
+            lines.append(f"{'':>17}LLM: {c['llm']['code']} - {c['llm']['why']}"
                          f"  (по векторам: {RELATION_TEXT[c['relation_vectors']]})")
     return "\n".join(lines)
 
