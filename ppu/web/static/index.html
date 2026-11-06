@@ -62,7 +62,14 @@ button:disabled { opacity: .55; cursor: wait; }
 .hint { color: var(--muted); font-size: 12px; }
 .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
 .error { color: var(--repeat); background: var(--repeat-bg); border-radius: 8px; padding: 12px 14px; }
-.verdict { border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+.verdict { border-radius: 10px; padding: 16px 18px; margin-bottom: 16px;
+           display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.verdict .v-main { flex: 1 1 320px; min-width: 0; }
+.verdict .v-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch;
+                   gap: 6px; max-width: 280px; text-align: center; }
+button.big { padding: 12px 24px; font-size: 16px; border-radius: 9px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.v-side .hint { font-size: 12px; }
+@media (max-width: 700px) { .verdict .v-side { max-width: none; width: 100%; } }
 .verdict h2 { margin: 0 0 4px; font-size: 19px; }
 .verdict .meta { font-size: 13px; color: var(--muted); }
 .v-repeat { background: var(--repeat-bg); color: var(--repeat); }
@@ -122,7 +129,6 @@ details.more > summary { cursor: pointer; list-style: none; padding: 10px 14px; 
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
 details.more[open] > summary { color: var(--muted); }
-.llm-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .external { margin-top: 8px; font-size: 12px; color: var(--repeat); }
 button.small { padding: 5px 12px; font-size: 13px; }
 .r-far { color: var(--far); background: var(--bg); }
@@ -187,6 +193,15 @@ function chips(entities) {
   return items.length ? `<div class="chips">${items.join("")}</div>` : "";
 }
 
+// «дата подачи: 2026-09-15 · ЭЭ: 12 000 · другое место» - подписи как у «общие слова»
+function facts(date, effect, extra = []) {
+  const items = [];
+  if (date) items.push(`дата подачи: <b>${esc(date)}</b>`);
+  if (effect) items.push(`ЭЭ: <b>${esc(Number(effect).toLocaleString("ru-RU"))}</b>`);
+  for (const x of extra) if (x) items.push(esc(x));
+  return items.length ? `<div class="match">${items.join(" · ")}</div>` : "";
+}
+
 // цветная метка статуса из реестра
 function statusClass(s) {
   s = (s || "").toLowerCase();
@@ -209,9 +224,8 @@ function candidate(c) {
   const block = (title, text) => text ? `<div><h4>${title}</h4><p>${esc(text)}</p></div>` : "";
   const placeNote = c.place === "unknown" && queryHasPlace && c.relation === "repeat"
     ? "место в найденном не указано" : PLACE[c.place];
-  const sub = [c.date_submitted,
-               c.effect ? "ЭЭ " + Number(c.effect).toLocaleString("ru-RU") : "", placeNote,
-               c.completeness === "name_only" ? "в реестре только название" : ""].filter(Boolean);
+  const factsLine = facts(c.date_submitted, c.effect,
+                          [placeNote, c.completeness === "name_only" ? "в реестре только название" : ""]);
   const body = block("До улучшения", t.before) + block("После улучшения", t.after)
              + block("Предложения", t.proposal) + block("Результат", t.result) + chips(c.entities);
   const llm = c.llm ? `<div class="why">Подробная проверка: ${esc(c.llm.why || RELATION[c.relation])}${
@@ -221,7 +235,7 @@ function candidate(c) {
   return `<details class="cand">
     <summary>
       <div class="score">${Math.round(c.score * 100)}%<small>близость</small></div>
-      <div class="body">${titleLine(c.id, c.name, c.status)}${sub.length ? `<div class="sub">${esc(sub.join(" · "))}</div>` : ""}${match}${llm}</div>
+      <div class="body">${titleLine(c.id, c.name, c.status)}${factsLine}${match}${llm}</div>
       <div class="badges"><span class="badge r-${c.relation}">${RELATION[c.relation]}</span>
         ${c.uncertain ? '<span class="unsure">не уверен</span>' : ""}</div>
     </summary>
@@ -245,17 +259,19 @@ function render(res) {
   $("#out").innerHTML = `
     ${res.candidates.length || more.length || words ? topic : ""}
     <div class="verdict v-${res.verdict}">
-      <h2>${esc(res.verdict_text)}</h2>
-      <div class="meter"><div style="width:${u}%"></div></div>
-      <div class="meta">Уникальность ${u}%${res.judged_by === "llm" ? " · проверено подробно" : ""}</div>
-      ${res.needs_llm ? '<span class="flag">Спорный случай</span>' : ""}
+      <div class="v-main">
+        <h2>${esc(res.verdict_text)}</h2>
+        <div class="meter"><div style="width:${u}%"></div></div>
+        <div class="meta">Уникальность ${u}%${res.judged_by === "llm" ? " · проверено подробно" : ""}</div>
+        ${res.needs_llm ? '<span class="flag">Спорный случай</span>' : ""}
+      </div>
       ${llmAvailable && res.judged_by !== "llm" && res.candidates.length ? `
-        <div class="llm-row">
-          <button type="button" id="ask-llm" class="${res.needs_llm ? "" : "ghost"} small">Проверить подробнее</button>
+        <div class="v-side">
+          <button type="button" id="ask-llm" class="big">Проверить подробнее</button>
           <button type="button" id="cancel-llm" class="ghost small" hidden>Отменить</button>
           <span class="hint" id="llm-status">медленнее: сервис внимательно перечитает ${res.candidates.length === 1 ? "найденное ППУ" : `все ${res.candidates.length} ППУ из списка`}</span>
-        </div>
-        ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}` : ""}
+          ${llmExternal ? `<div class="external">Текст ППУ и найденных записей уйдёт во внешний сервис: ${esc(llmExternal)}</div>` : ""}
+        </div>` : ""}
     </div>
     ${cands || '<div class="panel empty">Кандидатов нет</div>'}
     ${more.length ? `<details class="more"><summary>Показать ещё ${more.length}
@@ -300,10 +316,9 @@ async function showWord(btn) {
     if (!r.ok) throw new Error(d.detail || r.status);
     const block = (title, text) => text ? `<div><h4>${title}</h4><p>${esc(text)}</p></div>` : "";
     const rows = d.records.map((x) => {
-      const sub = [x.date_submitted,
-                   x.effect ? "ЭЭ " + Number(x.effect).toLocaleString("ru-RU") : ""].filter(Boolean).join(" · ");
+
       const body = block("До улучшения", x.before) + block("После улучшения", x.after) + block("Предложения", x.proposal);
-      return `<details><summary>${titleLine(x.id, x.name, x.status)}${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</summary>
+      return `<details><summary>${titleLine(x.id, x.name, x.status)}${facts(x.date_submitted, x.effect)}</summary>
         <div class="details">${body || '<p class="sub">Описания нет - в реестре «См.вложение»</p>'}</div></details>`;
     }).join("");
     box.innerHTML = `<div class="wl"><div class="wl-head"><b>Все ППУ со словом «${esc(d.word)}»: ${d.count}</b>
