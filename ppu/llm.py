@@ -1,14 +1,14 @@
 """Чат-модель через OpenAI-совместимый API с ответом в JSON.
 
 Рассуждения (thinking) выключаем: на рабочем CPU это 10 т/с, каждый
-лишний токен — это заметные секунды. Как выключать, зависит от сервера:
-polza.ai понимает `reasoning`, llama-server и vLLM — `chat_template_kwargs`
+лишний токен - это заметные секунды. Как выключать, зависит от сервера:
+polza.ai понимает `reasoning`, llama-server и vLLM - `chat_template_kwargs`
 (для Qwen3 это {"enable_thinking": false}). По умолчанию отправляем оба.
 LLM_EXTRA_BODY в .env дополняет их: ключ из .env заменяет только одноимённый
 ключ по умолчанию. Так строка для polza ({"reasoning": ...}) не отключает
 выключатель для llama-server/vLLM.
 
-Ответ читаем потоком: так запрос можно отменить (CancelToken) — поток
+Ответ читаем потоком: так запрос можно отменить (CancelToken) - поток
 закрывается, и llama-server перестаёт генерировать, а не занимает CPU
 ответом, который уже никто не ждёт. Пока идёт префилл, кусков нет,
 поэтому отмена срабатывает с первым токеном ответа.
@@ -57,8 +57,8 @@ def is_local(base_url: str) -> bool:
 def parse_json(text: str):
     """JSON из ответа модели: без обёртки ```json и пояснений вокруг.
 
-    Если модель выдала несколько объектов подряд: с разными ключами —
-    склеиваем в один, с одинаковыми — возвращаем списком.
+    Если модель выдала несколько объектов подряд: с разными ключами -
+    склеиваем в один, с одинаковыми - возвращаем списком.
     """
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
     found, pos = [], 0
@@ -94,7 +94,7 @@ class LLM:
             try:
                 user = json.loads(extra) if extra else {}
             except json.JSONDecodeError as e:
-                raise ValueError(f"LLM_EXTRA_BODY в .env — не JSON ({e}). Пример: "
+                raise ValueError(f"LLM_EXTRA_BODY в .env - не JSON ({e}). Пример: "
                                  'LLM_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}') from e
             if not isinstance(user, dict):
                 raise ValueError("LLM_EXTRA_BODY в .env должен быть JSON-объектом {...}")
@@ -132,7 +132,7 @@ class LLM:
                     parts.append(choice.delta.content or "")
                     finish = choice.finish_reason or finish
         finally:
-            stream.close()  # при отмене — обрываем соединение, сервер прекращает генерацию
+            stream.close()  # при отмене - обрываем соединение, сервер прекращает генерацию
         content = "".join(parts)
         self.last_usage = {"prompt_tokens": usage.prompt_tokens if usage else None,
                            "completion_tokens": usage.completion_tokens if usage else None,

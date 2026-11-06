@@ -14,7 +14,7 @@ import pymorphy3
 TOKEN_RE = re.compile(r"[a-zа-я0-9]+(?:-[a-zа-я0-9]+)*")
 
 # Стоп-слова по леммам. Частые, но содержательные слова («собственный»,
-# «сила», «работа») не выкидываем — их приглушит IDF.
+# «сила», «работа») не выкидываем - их приглушит IDF.
 STOPWORDS = set("""
 и в во не на с со по для от до из к ко о об а но что это как же бы у за при то так
 все весь его её ее их был быть есть он она оно они мы вы я ты который этот тот
@@ -48,7 +48,7 @@ class BM25:
         self.n_docs = len(docs)
         doc_len = np.array([len(d) for d in docs], dtype=np.float32)
         avgdl = float(doc_len.mean()) if self.n_docs and doc_len.mean() > 0 else 1.0
-        # нормировка длины не зависит от запроса — считаем один раз
+        # нормировка длины не зависит от запроса - считаем один раз
         self._len_norm = k1 * (1 - b + b * doc_len / avgdl)
         self.k1 = k1
 
@@ -71,7 +71,7 @@ class BM25:
         return p[0].tolist() if p is not None else []
 
     def doc_share(self, term: str) -> float:
-        """Доля записей, где встречается слово (0 — нигде)."""
+        """Доля записей, где встречается слово (0 - нигде)."""
         p = self._postings.get(term)
         return len(p[0]) / self.n_docs if p is not None and self.n_docs else 0.0
 

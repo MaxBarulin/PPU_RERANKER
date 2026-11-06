@@ -62,14 +62,14 @@ def test_password_bruteforce_lockout(monkeypatch):
     monkeypatch.setattr(web, "_fails", {})
     from urllib.parse import quote
     good = {"X-Admin-Token": quote("верный")}
-    # без пароля — не попытка подбора, не блокирует
+    # без пароля - не попытка подбора, не блокирует
     for _ in range(20):
         assert c.post("/api/admin/check").status_code == 403
     assert c.post("/api/admin/check", headers=good).status_code == 200
     for _ in range(web.MAX_FAILS):
         assert c.post("/api/admin/check", headers={"X-Admin-Token": "x"}).status_code == 403
     r = c.post("/api/admin/check", headers=good)
-    assert r.status_code == 429 and "попыток" in r.json()["detail"]  # даже верный — после блокировки
+    assert r.status_code == 429 and "попыток" in r.json()["detail"]  # даже верный - после блокировки
     monkeypatch.setattr(web, "_fails", {})
     assert c.post("/api/admin/check", headers=good).status_code == 200
 

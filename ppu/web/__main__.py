@@ -3,7 +3,7 @@ import os
 
 import uvicorn
 
-from .. import config  # noqa: F401 — загружает .env (PPU_SSL_CERT/PPU_SSL_KEY)
+from .. import config  # noqa: F401 - загружает .env (PPU_SSL_CERT/PPU_SSL_KEY)
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
         os.environ["PPU_INDEX"] = args.index
     if bool(args.ssl_certfile) != bool(args.ssl_keyfile):
         parser.error("для HTTPS нужны и сертификат, и ключ (PPU_SSL_CERT и PPU_SSL_KEY)")
-    # server_header=False — не сообщать всем, на чём работает сервер
+    # server_header=False - не сообщать всем, на чём работает сервер
     uvicorn.run("ppu.web.app:app", host=args.host, port=args.port, server_header=False,
                 ssl_certfile=args.ssl_certfile, ssl_keyfile=args.ssl_keyfile)
 

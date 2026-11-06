@@ -14,7 +14,7 @@ const { chromium } = require('playwright');
   await p.pdf({ path: 'docs/rukovodstvo-specialista.pdf', format: 'A4', printBackground: true,
     preferCSSPageSize: true, displayHeaderFooter: true, headerTemplate: '<span></span>',
     footerTemplate: '<div style="font:8px Inter,sans-serif;color:#8a94a6;width:100%;padding:0 17mm;'
-      + 'display:flex;justify-content:space-between"><span>Проверка ППУ на повторы — руководство '
+      + 'display:flex;justify-content:space-between"><span>Проверка ППУ на повторы - руководство '
       + 'специалиста</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>' });
   await b.close();
 })();

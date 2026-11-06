@@ -41,7 +41,7 @@ def test_stream_assembled_and_usage(monkeypatch):
 def test_empty_because_of_token_limit_is_explained_without_retry(monkeypatch):
     llm = make_llm(monkeypatch, FakeStream(["", ""], finish="length"))
     with pytest.raises(LLMError, match="рассуждения"):
-        llm.json("sys", "user", max_tokens=400)   # второго потока нет — значит, не переспрашивал
+        llm.json("sys", "user", max_tokens=400)   # второго потока нет - значит, не переспрашивал
 
 
 def test_bad_json_retried(monkeypatch):

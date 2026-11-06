@@ -155,7 +155,7 @@ def test_calibration_via_web(tmp_path, monkeypatch):
     s = wait_calib(c)
     assert s["job"]["status"] == "done" and s["pairs"] > 0
 
-    # размечаем: близкие — повтор, дальние — не связаны
+    # размечаем: близкие - повтор, дальние - не связаны
     for p in calibrate.load_pairs(tmp_path / "calib"):
         lab = "repeat" if p["dense"] >= 0.8 else "different"
         assert c.post("/api/label", json={"pair_id": p["pair_id"], "label": lab}).status_code == 200
@@ -235,8 +235,8 @@ def test_llm_label_pairs_groups_and_keeps_human(tmp_path):
     assert res["count"] == len(pairs) - 1 and len(meta) == len(pairs)
     assert meta[pairs[0]["pair_id"]]["by"] == "human" and meta[pairs[0]["pair_id"]]["label"] == "different"
     assert {r["by"] for pid, r in meta.items() if pid != pairs[0]["pair_id"]} == {"llm"}
-    assert all(len(c) <= 4 for _, c in calls) and len(calls) < len(pairs)  # пары по одной A — одним запросом
-    # повторный запуск ничего не делает — всё размечено
+    assert all(len(c) <= 4 for _, c in calls) and len(calls) < len(pairs)  # пары по одной A - одним запросом
+    # повторный запуск ничего не делает - всё размечено
     assert calibrate.llm_label_pairs(by_id, fake_judge(calls=calls), tmp_path)["total"] == 0
 
 

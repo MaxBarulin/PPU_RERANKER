@@ -1,19 +1,19 @@
-"""Чтение реестра ППУ из MS SQL — вместо загрузки Excel.
+"""Чтение реестра ППУ из MS SQL - вместо загрузки Excel.
 
     python -m ppu.db --check      # подключиться, показать колонки и пару записей
 
-Настройки — в .env (DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD, DB_TABLE).
+Настройки - в .env (DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD, DB_TABLE).
 Колонки узнаются так же, как заголовки Excel («Рег. №», «Наименование»,
 «До улучшения» …), по названиям из URPS.dbo.PPU_Export (Title, RegNum,
 BeforeImprovement …) или по каноническим именам (reg_no, name, before …).
-Обязательны наименование, «до» и «после»; «Предложения» — если есть.
-Если в таблице они названы иначе — запрос с переименованием в файле
+Обязательны наименование, «до» и «после»; «Предложения» - если есть.
+Если в таблице они названы иначе - запрос с переименованием в файле
 DB_QUERY_FILE, например:
 
     SELECT [РегНомер] AS reg_no, [Название] AS name, [Было] AS before, ...
     FROM dbo.PPU_Export
 
-Запрос фиксированный (из .env/файла, не от пользователя), учётка — только на чтение.
+Запрос фиксированный (из .env/файла, не от пользователя), учётка - только на чтение.
 """
 import argparse
 import os
@@ -45,7 +45,7 @@ def configured(s: dict | None = None) -> bool:
 
 
 def describe(s: dict | None = None) -> str:
-    """Куда подключаемся — без пароля."""
+    """Куда подключаемся - без пароля."""
     s = s or settings()
     what = s["table"] or Path(s["query_file"]).name
     return f"{s['server']}{':' + s['port'] if s['port'] else ''} / {s['name']} / {what}"
@@ -65,9 +65,9 @@ def _col(name: str) -> str:
 
 
 def query(s: dict, columns: list[str] | None = None) -> str:
-    """Запрос за данными: из DB_QUERY_FILE, иначе — только нужные колонки таблицы.
+    """Запрос за данными: из DB_QUERY_FILE, иначе - только нужные колонки таблицы.
 
-    Без columns — пустой запрос (TOP 0) только чтобы узнать названия колонок:
+    Без columns - пустой запрос (TOP 0) только чтобы узнать названия колонок:
     в таблице могут быть тяжёлые колонки (вложения), их не читаем.
     """
     if s["query_file"]:
@@ -110,7 +110,7 @@ def _run(driver, conn, sql: str) -> tuple[list[str], list[tuple]]:
 def fetch(s: dict | None = None) -> tuple[list[str], list[tuple], list[str]]:
     """Колонки и строки для реестра + все колонки таблицы.
 
-    С DB_QUERY_FILE — что вернул запрос. Иначе сначала узнаём колонки таблицы,
+    С DB_QUERY_FILE - что вернул запрос. Иначе сначала узнаём колонки таблицы,
     потом читаем только узнанные (наименование, до, после …).
     """
     s = s or settings()
@@ -166,7 +166,7 @@ def load_registry_db(s: dict | None = None) -> list[dict]:
         return records_from_rows(columns, rows, first_row=1, id_prefix="db", required=DB_REQUIRED)
     except ValueError as e:
         raise DBError(f"{e}. Колонки в таблице: {', '.join(all_columns)}. "
-                      "Нужен запрос с переименованием — DB_QUERY_FILE (см. docs)") from e
+                      "Нужен запрос с переименованием - DB_QUERY_FILE (см. docs)") from e
 
 
 def check(s: dict | None = None) -> dict:
@@ -194,7 +194,7 @@ def check(s: dict | None = None) -> dict:
 
 
 def main():
-    from . import config  # noqa: F401 — загружает .env
+    from . import config  # noqa: F401 - загружает .env
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="проверить подключение и колонки")
@@ -203,7 +203,7 @@ def main():
         res = check()
     except DBError as e:
         raise SystemExit(f"[ОШИБКА] {e}")
-    print(f"Подключение: {res['target']} — строк: {res['rows'] if res['rows'] is not None else '?'}")
+    print(f"Подключение: {res['target']} - строк: {res['rows'] if res['rows'] is not None else '?'}")
     print("Колонки:", ", ".join(res["columns"]))
     print("Узнаны:", ", ".join(f"{FIELD_TITLES.get(f, f)} ← {c}" for f, c in res["mapped"].items()))
     if res["not_used"]:
@@ -214,9 +214,9 @@ def main():
     print(f"Записей ППУ: {res['records']}, без рег. номера: {res['without_reg_no']}, "
           f"повторов рег. номера: {res['duplicate_ids']}")
     for r in res["sample"]:
-        print(f"  № {r['id']} · {r['name']} · {r['status'] or '—'} · {r['date_submitted'] or '—'}"
-              f" · ЭЭ {r['effect'] if r['effect'] is not None else '—'}")
-    print("Всё на месте — можно «Обновить из базы» на /admin")
+        print(f"  № {r['id']} · {r['name']} · {r['status'] or '-'} · {r['date_submitted'] or '-'}"
+              f" · ЭЭ {r['effect'] if r['effect'] is not None else '-'}")
+    print("Всё на месте - можно «Обновить из базы» на /admin")
 
 
 if __name__ == "__main__":

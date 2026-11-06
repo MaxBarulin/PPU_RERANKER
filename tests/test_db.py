@@ -22,7 +22,7 @@ ROWS = [
      Decimal("8500.50"), datetime(2024, 3, 1), "y"),
     (None, "Подставка под паяльник", "Прожигается стол.", None, "Сделать подставку.", None,
      None, None, "z"),
-    (None, None, None, None, None, None, None, None, None),  # пустая строка — пропускается
+    (None, None, None, None, None, None, None, None, None),  # пустая строка - пропускается
 ]
 
 
@@ -51,7 +51,7 @@ def fake_pymssql(monkeypatch, columns=EXCEL_LIKE, rows=ROWS, fail_connect=None, 
                 idx = [columns.index(c) for c in wanted]
                 self.description = [(c,) for c in wanted]
                 self._rows = [tuple(r[i] for i in idx) for r in rows]
-            else:  # запрос из файла — отдаём как есть
+            else:  # запрос из файла - отдаём как есть
                 self.description, self._rows = [(c,) for c in columns], list(rows)
 
         def fetchall(self):
@@ -108,7 +108,7 @@ def test_check_and_load(db_env, monkeypatch):
     assert res["mapped"]["name"] == "Наименование" and res["not_used"] == ["Служебное"]
     assert res["without_reg_no"] == 1 and res["duplicate_ids"] == 0
     assert seen[0]["server"] == "SRV-SPSQL3" and seen[0]["database"] == "URPS" and "port" not in seen[0]
-    # сначала только названия колонок, потом — только нужные колонки, без «Служебное»
+    # сначала только названия колонок, потом - только нужные колонки, без «Служебное»
     sqls = [x for x in seen if isinstance(x, str)]
     assert sqls[0] == "SELECT TOP 0 * FROM [PPU_Export]" and "Служебное" not in sqls[1]
 

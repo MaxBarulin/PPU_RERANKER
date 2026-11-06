@@ -5,7 +5,7 @@
     python -m ppu.search --id row2          # запись из реестра как запрос (себя исключаем)
 
 Здесь только отбор кандидатов. Вердикт «дубль / другое место /
-альтернатива» — следующий этап (реранкер и LLM).
+альтернатива» - следующий этап (реранкер и LLM).
 """
 import argparse
 import json
@@ -30,7 +30,7 @@ def make_query(name: str, before: str = "", after: str = "", proposal: str = "")
 
 
 def _ranks(scores: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """Место в списке (с 1) для valid-записей, inf — для остальных."""
+    """Место в списке (с 1) для valid-записей, inf - для остальных."""
     ranks = np.full(len(scores), np.inf)
     order = np.argsort(-np.where(valid, scores, -np.inf), kind="stable")
     n_valid = int(valid.sum())
@@ -41,7 +41,7 @@ def _ranks(scores: np.ndarray, valid: np.ndarray) -> np.ndarray:
 def dense_scores(index: Index, q_vecs: dict[str, np.ndarray]):
     """Векторная близость запроса ко всем записям.
 
-    q_vecs — векторы запроса по представлениям (только те, где у запроса есть текст).
+    q_vecs - векторы запроса по представлениям (только те, где у запроса есть текст).
     Возвращает (dense, cos по представлениям, есть ли у записи общее представление).
     """
     n = len(index)
@@ -59,7 +59,7 @@ def dense_scores(index: Index, q_vecs: dict[str, np.ndarray]):
 
 
 def place_relation(q_ent: dict, r_ent: dict) -> str:
-    """same — совпадает цех/участок, other — указаны разные, unknown — где-то не указано."""
+    """same - совпадает цех/участок, other - указаны разные, unknown - где-то не указано."""
     q = {(k, v) for k in PLACE_KEYS for v in q_ent.get(k, [])}
     r = {(k, v) for k in PLACE_KEYS for v in r_ent.get(k, [])}
     if not q or not r:
@@ -97,7 +97,7 @@ def search(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
             "dense": float(dense[i]),
             "bm25": float(bm25[i]),
             "cos": {v: round(float(c[i]), 4) for v, c in cos.items() if not np.isnan(c[i])},
-            # None — кандидат не попал в этот список (нет общих слов и т.п.)
+            # None - кандидат не попал в этот список (нет общих слов и т.п.)
             "rank": {k: int(v) if np.isfinite(v) else None
                      for k, v in (("dense", dense_rank[i]), ("bm25", bm25_rank[i]))},
         })
@@ -109,7 +109,7 @@ def format_results(query: dict, results: list[dict]) -> str:
              f"{'#':>2} {'id':>7} {'dense':>6} {'bm25':>6}  {'место':7} {'статус':14} наименование"]
     for k, r in enumerate(results, 1):
         lines.append(f"{k:>2} {r['id']:>7} {r['dense']:6.3f} {r['bm25']:6.2f}  "
-                     f"{r['place']:7} {(r['status'] or '—')[:14]:14} {(r['name'] or '')[:80]}")
+                     f"{r['place']:7} {(r['status'] or '-')[:14]:14} {(r['name'] or '')[:80]}")
     return "\n".join(lines)
 
 

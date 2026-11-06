@@ -2,7 +2,7 @@
 
     python -m ppu.rebuild "Реестр ППУ.xlsx"
 
-То же делает кнопка на странице /admin веб-интерфейса. Источник записей —
+То же делает кнопка на странице /admin веб-интерфейса. Источник записей -
 просто список словарей (см. loader.load_registry), поэтому Excel потом можно
 заменить чтением из базы данных, не трогая остальное.
 
@@ -47,7 +47,7 @@ def rebuild(raw_records: list[dict], index_dir: str | Path, embedder, model: str
         raise ValueError("В реестре нет ни одной записи")
     rep = report(records)
 
-    # какие представления реально будут считаться — для подписи «часть k из n»
+    # какие представления реально будут считаться - для подписи «часть k из n»
     texts = [view_texts(r) for r in records]
     views = [v for v in VIEWS if any(t[v] for t in texts)]
     step = iter(range(1, len(views) + 1))
@@ -93,7 +93,7 @@ class Job:
 
     def start(self, work: Callable[[Progress], dict], on_success: Callable[[], None] = lambda: None,
               source: str = "") -> bool:
-        """Запускает work(progress) в отдельном потоке. False — уже идёт другая сборка."""
+        """Запускает work(progress) в отдельном потоке. False - уже идёт другая сборка."""
         with self._lock:
             if self._state["status"] == "running":
                 return False
@@ -110,9 +110,9 @@ class Job:
                 on_success()
                 self._update(status="done", stage="Готово", done=None, total=None,
                              records=meta.get("count"), report=meta.get("report"))
-            except Exception as e:  # покажем причину на странице, подробности — в лог
+            except Exception as e:  # покажем причину на странице, подробности - в лог
                 traceback.print_exc()
-                # свои ошибки уже написаны для человека — без имени класса
+                # свои ошибки уже написаны для человека - без имени класса
                 own = type(e).__name__ in ("DBError", "LLMError", "ValueError")
                 self._update(status="error", error=str(e) if own else f"{type(e).__name__}: {e}")
             finally:

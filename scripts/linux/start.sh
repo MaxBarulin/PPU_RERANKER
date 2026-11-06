@@ -3,14 +3,14 @@
 #
 #   scripts/linux/start.sh
 #
-# Первый запуск сам создаёт venv и .env. Порт и адрес — PPU_PORT / PPU_HOST
+# Первый запуск сам создаёт venv и .env. Порт и адрес - PPU_PORT / PPU_HOST
 # в .env (по умолчанию 8010 и 0.0.0.0). База обновляется на странице /admin.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p logs data
 PIDFILE=logs/web.pid
 
-# PID из файла может после перезагрузки достаться другому процессу — сверяем команду
+# PID из файла может после перезагрузки достаться другому процессу - сверяем команду
 running() { [ -f "$PIDFILE" ] && ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null | grep -q "ppu.web"; }
 
 env_get() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true; }
@@ -23,9 +23,9 @@ if [ ! -x venv/bin/python ]; then
 fi
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "Создан .env из .env.example — проверь адреса моделей: nano .env"
+  echo "Создан .env из .env.example - проверь адреса моделей: nano .env"
 fi
-# в .env пароль администратора — читать его может только владелец
+# в .env пароль администратора - читать его может только владелец
 chmod 600 .env 2>/dev/null || true
 
 PORT=$(env_get PPU_PORT); PORT=${PORT:-8010}
@@ -44,7 +44,7 @@ fi
 check() {
   if [ -z "$2" ]; then echo "  $1: не настроен"; return; fi
   if curl -fsS -m 5 "$2/models" >/dev/null 2>&1; then echo "  $1: OK  ($2)"
-  else echo "  $1: НЕ ОТВЕЧАЕТ  ($2) — проверь, что сервер модели запущен"; fi
+  else echo "  $1: НЕ ОТВЕЧАЕТ  ($2) - проверь, что сервер модели запущен"; fi
 }
 echo "Модели из .env:"
 check "эмбеддинги" "$(env_get EMB_BASE_URL)"
@@ -66,10 +66,10 @@ echo "Работает (PID $(cat "$PIDFILE")):"
 echo "  проверка ППУ:     $SCHEME://${IP:-$(hostname)}:$PORT"
 echo "  обновление базы:  $SCHEME://${IP:-$(hostname)}:$PORT/admin"
 if [ "$SCHEME" = http ] && [ "$HOST" != 127.0.0.1 ]; then
-  echo "  [!] без HTTPS пароль администратора идёт по сети открытым текстом — см. docs/linux-server.md"
+  echo "  [!] без HTTPS пароль администратора идёт по сети открытым текстом - см. docs/linux-server.md"
 fi
 if [ -z "$(env_get PPU_ADMIN_TOKEN)" ]; then
-  echo "  [!] PPU_ADMIN_TOKEN не задан — базу и калибровку может менять любой"
+  echo "  [!] PPU_ADMIN_TOKEN не задан - базу и калибровку может менять любой"
 fi
 echo "  лог:              tail -f logs/web.log"
 echo "  остановить:       scripts/linux/stop.sh"
