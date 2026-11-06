@@ -156,6 +156,12 @@ def page():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/logo.png")
+def logo():
+    return FileResponse(STATIC / "logo.png", media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api/info")
 def info():
     try:

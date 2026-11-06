@@ -110,3 +110,8 @@ def test_topic_summary_and_word_list(monkeypatch):
     # слово в другой форме находит то же
     assert c.get("/api/word", params={"w": "напильников"}).json()["word"] == "напильник"
     assert c.get("/api/word", params={"w": "и"}).status_code == 422
+
+
+def test_logo_served(monkeypatch):
+    r = client(monkeypatch).get("/logo.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
