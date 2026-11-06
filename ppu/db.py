@@ -4,7 +4,9 @@
 
 Настройки — в .env (DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD, DB_TABLE).
 Колонки узнаются так же, как заголовки Excel («Рег. №», «Наименование»,
-«До улучшения» …) или по каноническим именам (reg_no, name, before …).
+«До улучшения» …), по названиям из URPS.dbo.PPU_Export (Title, RegNum,
+BeforeImprovement …) или по каноническим именам (reg_no, name, before …).
+Обязательны наименование, «до» и «после»; «Предложения» — если есть.
 Если в таблице они названы иначе — запрос с переименованием в файле
 DB_QUERY_FILE, например:
 
@@ -19,7 +21,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from .loader import REQUIRED, _match_columns, records_from_rows
+from .loader import DB_REQUIRED, _match_columns, records_from_rows
 
 # имя таблицы/представления: буквы, цифры, _, точка (схема), квадратные скобки
 TABLE_RE = re.compile(r"^[\w.\[\] ]+$")
@@ -119,7 +121,7 @@ def fetch(s: dict | None = None) -> tuple[list[str], list[tuple], list[str]]:
             return columns, rows, columns
         all_columns, _ = _run(driver, conn, query(s))
         mapping = _match_columns(all_columns)
-        missing = [f for f in REQUIRED if f not in mapping]
+        missing = [f for f in DB_REQUIRED if f not in mapping]
         if missing:
             return all_columns, [], all_columns
         needed = [all_columns[i] for i in sorted(mapping.values())]
@@ -161,7 +163,7 @@ def _short(e: Exception) -> str:
 def load_registry_db(s: dict | None = None) -> list[dict]:
     columns, rows, all_columns = fetch(s)
     try:
-        return records_from_rows(columns, rows, first_row=1, id_prefix="db")
+        return records_from_rows(columns, rows, first_row=1, id_prefix="db", required=DB_REQUIRED)
     except ValueError as e:
         raise DBError(f"{e}. Колонки в таблице: {', '.join(all_columns)}. "
                       "Нужен запрос с переименованием — DB_QUERY_FILE (см. docs)") from e
@@ -172,7 +174,7 @@ def check(s: dict | None = None) -> dict:
     s = s or settings()
     columns, rows, all_columns = fetch(s)
     mapping = _match_columns(all_columns)
-    missing = [f for f in REQUIRED if f not in mapping]
+    missing = [f for f in DB_REQUIRED if f not in mapping]
     out = {"target": describe(s), "columns": all_columns,
            "mapped": {f: all_columns[i] for f, i in mapping.items()},
            "missing": [FIELD_TITLES.get(f, f) for f in missing],
@@ -180,7 +182,7 @@ def check(s: dict | None = None) -> dict:
     if missing:
         out["rows"] = count_rows(s)
         return out
-    records = records_from_rows(columns, rows, first_row=1, id_prefix="db")
+    records = records_from_rows(columns, rows, first_row=1, id_prefix="db", required=DB_REQUIRED)
     dup = sum(n - 1 for n in Counter(r["id"] for r in records).values() if n > 1)
     out.update(rows=len(rows), records=len(records),
                without_reg_no=sum(r.get("reg_no") is None for r in records),

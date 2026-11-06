@@ -10,23 +10,26 @@ from pathlib import Path
 
 import openpyxl
 
-# Каноническое имя поля -> варианты заголовка в реестре (после _norm_header)
+# Каноническое имя поля -> варианты заголовка в реестре (после _norm_header):
+# заголовки Excel и названия колонок таблицы URPS.dbo.PPU_Export (MS SQL)
 COLUMNS = {
-    "reg_no": ["рег. №", "рег.№", "рег №", "регистрационный номер", "№", "№ п/п"],
-    "name": ["наименование", "наименование ппу"],
-    "before": ["до улучшения"],
-    "after": ["после улучшения"],
-    "proposal": ["предложения", "предложение"],
-    "result": ["результат"],
+    "reg_no": ["рег. №", "рег.№", "рег №", "регистрационный номер", "№", "№ п/п", "regnum"],
+    "name": ["наименование", "наименование ппу", "title"],
+    "before": ["до улучшения", "beforeimprovement"],
+    "after": ["после улучшения", "afterimprovement"],
+    "proposal": ["предложения", "предложение", "proposals", "offer", "offers"],
+    "result": ["результат", "result0"],
     "status": ["статус"],
-    "effect": ["ээ", "экономический эффект"],
-    "date_submitted": ["дата подачи"],
-    "date_registered": ["дата регистрации"],
-    "date_reviewed": ["дата рассмотрения"],
-    "date_implemented": ["дата реализации"],
-    "date_effect": ["дата ээ"],
+    "effect": ["ээ", "экономический эффект", "ee"],
+    "date_submitted": ["дата подачи", "filingdate"],
+    "date_registered": ["дата регистрации", "regdate"],
+    "date_reviewed": ["дата рассмотрения", "determinationdate"],
+    "date_implemented": ["дата реализации", "realizationdate"],
+    "date_effect": ["дата ээ", "eeapprovaldate"],
 }
 REQUIRED = ("name", "before", "after", "proposal")
+# в базе колонки «Предложения» может не быть — без неё запись всё равно полноценная
+DB_REQUIRED = ("name", "before", "after")
 HEADER_SCAN_ROWS = 10
 
 
@@ -71,20 +74,21 @@ def _convert(value):
 
 
 def records_from_rows(header, rows, first_row: int = 1, id_prefix: str = "row",
-                      sheet: str | None = None, mapping: dict[str, int] | None = None) -> list[dict]:
+                      sheet: str | None = None, mapping: dict[str, int] | None = None,
+                      required: tuple[str, ...] = REQUIRED) -> list[dict]:
     """Строки таблицы (Excel или SQL) -> записи с каноническими полями.
 
     `id` — регистрационный номер, а если его нет — `<id_prefix><номер строки>`.
     """
     mapping = mapping if mapping is not None else _match_columns(header)
-    missing = [f for f in REQUIRED if f not in mapping]
+    missing = [f for f in required if f not in mapping]
     if missing:
         raise ValueError(f"Нет колонок: {', '.join(missing)}")
     records = []
     for row_idx, row in enumerate(rows, start=first_row):
         rec = {field: _convert(row[idx]) if idx < len(row) else None
                for field, idx in mapping.items()}
-        if not any(rec.get(f) for f in REQUIRED):
+        if not any(rec.get(f) for f in required):
             continue
         reg_no = rec.get("reg_no")
         if isinstance(reg_no, float) and reg_no.is_integer():

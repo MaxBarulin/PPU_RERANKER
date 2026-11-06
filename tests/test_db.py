@@ -125,10 +125,10 @@ def test_canonical_column_names(db_env, monkeypatch):
 
 
 def test_missing_columns_and_errors(db_env, monkeypatch):
-    fake_pymssql(monkeypatch, columns=["ID", "Title", "Text"], rows=[(1, "a", "b")])
+    fake_pymssql(monkeypatch, columns=["ID", "Caption", "Text"], rows=[(1, "a", "b")])
     res = db.check()
     assert "наименование" in res["missing"] and "records" not in res and res["rows"] == 1
-    with pytest.raises(db.DBError, match="Колонки в таблице: ID, Title, Text"):
+    with pytest.raises(db.DBError, match="Колонки в таблице: ID, Caption, Text"):
         db.load_registry_db()
     fake_pymssql(monkeypatch, fail_connect="Adaptive Server connection failed")
     with pytest.raises(db.DBError, match="Не удалось подключиться к SRV-SPSQL3 / URPS"):
@@ -166,3 +166,26 @@ def test_web_db_check_and_rebuild(db_env, monkeypatch, tmp_path):
     monkeypatch.delenv("DB_SERVER")
     assert c.get("/api/index/status").json()["db"]["configured"] is False
     assert c.post("/api/index/rebuild-db").status_code == 422
+
+
+def test_urps_column_names_without_proposal(db_env, monkeypatch):
+    # как на скриншоте SSMS: URPS.dbo.PPU_Export2, колонки по-английски, «Предложений» нет
+    cols = ["ID", "UID", "Title", "RegNum", "Status", "TabNum", "RegDate", "DeterminationDate",
+            "RealizationDate", "EEApprovalDate", "FilingDate", "BeforeImprovement",
+            "AfterImprovement", "Result0", "EE"]
+    rows = [(9, "F0AC...", "Звукоизоляция круговой виброустановки", 19, "Реализовано", 19024,
+             datetime(2018, 10, 18), datetime(2018, 12, 7), datetime(2019, 10, 1), None,
+             datetime(2018, 10, 18), "Шумно у установки", "Сделана звукоизоляция", "Тише",
+             Decimal("15000.0000"))]
+    seen = []
+    fake_pymssql(monkeypatch, columns=cols, rows=rows, seen=seen)
+    res = db.check()
+    assert not res["missing"] and res["records"] == 1
+    assert res["mapped"]["name"] == "Title" and res["mapped"]["effect"] == "EE"
+    assert "TabNum" in res["not_used"] and "UID" in res["not_used"]
+    # табельный номер (персональные данные) и прочие лишние колонки не читаются
+    assert not any("TabNum" in x for x in seen if isinstance(x, str) and "TOP 0" not in x)
+    r = db.load_registry_db()[0]
+    assert r["id"] == "19" and r["name"].startswith("Звукоизоляция") and r["effect"] == 15000
+    assert r["date_submitted"] == "2018-10-18" and r["date_implemented"] == "2019-10-01"
+    assert r["result"] == "Тише" and "proposal" not in r
