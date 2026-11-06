@@ -77,11 +77,11 @@ button:disabled { opacity: .55; cursor: wait; }
 .cand summary { list-style: none; cursor: pointer; padding: 12px 14px 12px 10px; display: grid;
                 grid-template-columns: 78px 1fr auto; gap: 0; align-items: stretch; }
 .cand summary > .score { padding-right: 12px; border-right: 1px solid var(--line);
-                         display: flex; flex-direction: column; justify-content: center; }
+                         display: flex; flex-direction: column; justify-content: center; align-items: center; }
 .cand summary > .body { padding: 0 14px; align-self: center; min-width: 0; }
 .cand summary > .badges { padding-left: 12px; border-left: 1px solid var(--line); justify-content: center; }
 .cand summary::-webkit-details-marker { display: none; }
-.score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 22px; text-align: left; line-height: 1.2; }
+.score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 22px; text-align: center; line-height: 1.2; }
 .score small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
 .title { font-weight: 600; font-size: 16px; }
 .title .no { white-space: nowrap; }
