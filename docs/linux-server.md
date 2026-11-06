@@ -122,7 +122,9 @@ venv/bin/python -m ppu.rebuild "Реестр ППУ.xlsx"
    ```bash
    venv/bin/python -m ppu.db --check
    ```
-   Покажет колонки таблицы, какие из них узнаны (по тем же названиям, что в Excel),
+   Покажет колонки таблицы, какие из них узнаны (по тем же названиям, что в Excel,
+   или по названиям из URPS: `Title`, `RegNum`, `BeforeImprovement`, `AfterImprovement`,
+   `Result0`, `EE`, `FilingDate` …; «Предложения» в базе необязательны),
    сколько записей и первые три. Если всё на месте — перезапустите веб
    (`scripts/linux/stop.sh && scripts/linux/start.sh`), на `/admin` появится блок
    «Из базы данных»: «Проверить подключение» и «Обновить из базы».
@@ -143,7 +145,8 @@ FROM dbo.PPU_Export
 | Ошибка | Что делать |
 |---|---|
 | `TDS server is unavailable or does not exist` | имя сервера не находится или порт закрыт: попробуйте полное имя (`SRV-SPSQL3.домен`) или IP в `DB_SERVER`; проверьте порт (шаг 2); если экземпляр именованный — `DB_SERVER=SRV-SPSQL3\ИМЯ` |
-| `Login failed for user 'ppu'` | неверный пароль или учётка не SQL-логин; если ИТ выдали доменную учётку — попросить SQL-логин |
+| `Login failed for user 'ppu'` | неверный пароль; или на сервере не включён вход по SQL-логинам («SQL Server and Windows Authentication mode») — это у ИТ; или выдали доменную учётку — попросить SQL-логин |
+| ошибки про SSL/TLS, `handshake` | старый SQL Server (2014) и шифрование: создайте `~/.freetds.conf` с двумя строками `[global]` и `encryption = off` и повторите проверку |
 | `Invalid object name 'PPU_Export'` | таблица в другой схеме: `DB_TABLE=схема.PPU_Export`, или у учётки нет прав на чтение |
 | `Не найдены колонки: …` | колонки названы иначе — нужен `DB_QUERY_FILE` (см. выше) |
 | требуется шифрование | сообщите — подключим через официальный драйвер Microsoft (ODBC 18) |
