@@ -11,12 +11,6 @@ nohup.out
 certs/
 *.pem
 
-# ролик: модели голоса, venv, звук и кадры
-tools/video/venv/
-tools/video/voices/
-tools/video/audio/
-tools/video/out/
-tools/video/seg/
-tools/video/stage/timeline.js
-tools/video/stage/ui/
-tools/video/stage/logo.png
+# ролик и локальные настройки Claude - не в репозитории
+tools/video/
+.claude/
