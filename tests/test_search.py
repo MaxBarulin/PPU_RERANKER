@@ -131,3 +131,53 @@ def test_results_are_json_serializable():
     index = build_index(REGISTRY, fake_embed)
     res = assess(index, make_query("Ручки для напильников"), fake_embed)
     json.dumps(res, allow_nan=False)
+
+
+def test_semantic_leader_without_shared_words_stays_on_top():
+    # пересказ другими словами: первый по смыслу, по словам не найден вовсе;
+    # 30 записей с общим словом не должны утопить его в общем рейтинге
+    def embed(texts):
+        out = np.zeros((len(texts), DIM), dtype=np.float32)
+        for i, t in enumerate(texts):
+            low = t.lower()
+            if "ручк" in low or "рукоят" in low:
+                out[i, 0] = 1
+            else:
+                n = int(low.split()[-1])
+                c = 0.5 - 0.01 * n
+                out[i, 0], out[i, n + 1] = c, (1 - c * c) ** 0.5
+        return out
+
+    registry = [rec("t", "Ручки для напильников")] \
+        + [rec(f"w{n}", f"Шкаф для инструмента {n}") for n in range(30)]
+    index = build_index(registry, embed)
+    hits = search(index, make_query("Рукоятки инструмента"), embed, top_k=None)
+    target = next(h for h in hits if h["id"] == "t")
+    assert target["rank"] == {"dense": 1, "bm25": None}
+    assert [h["id"] for h in hits].index("t") < 10
+
+
+def _cand(id_, dense, rrf):
+    return {"id": id_, "name": id_, "status": None, "effect": None, "completeness": "full",
+            "entities": {}, "place": "unknown", "rrf": rrf, "dense": dense, "bm25": 0.0,
+            "cos": {"full": dense}, "rank": {"dense": 1, "bm25": None}}
+
+
+def test_near_miss_is_disputed_and_shown_first(monkeypatch):
+    from ppu import assess as mod
+
+    index = build_index(REGISTRY, fake_embed)
+    q = make_query("Автоматизация расчёта зарплаты в 1С")
+    near = mod.DEFAULT_CALIBRATION.with_text.similar - 0.01
+    # самая близкая по смыслу - последняя по общему рейтингу поиска
+    cands = [_cand("1", 0.50, 0.4), _cand("2", 0.45, 0.3), _cand("3", 0.40, 0.2), _cand("4", near, 0.1)]
+    monkeypatch.setattr(mod, "search", lambda *a, **k: [dict(c) for c in cands])
+    res = mod.assess(index, q, fake_embed, cal=mod.DEFAULT_CALIBRATION)
+    assert res["verdict"] == "unique" and res["needs_llm"]
+    assert [c["id"] for c in res["candidates"]] == ["4", "1", "2"]
+    assert res["candidates"][0]["uncertain"] and res["candidates"][0]["relation"] == "far"
+
+    cands[-1] = _cand("4", near - mod.NEAR_MISS, 0.1)
+    res = mod.assess(index, q, fake_embed, cal=mod.DEFAULT_CALIBRATION)
+    assert res["verdict"] == "unique" and not res["needs_llm"]
+    assert res["candidates"][0]["id"] == "4"
