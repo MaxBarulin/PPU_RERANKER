@@ -67,8 +67,9 @@ def place_relation(q_ent: dict, r_ent: dict) -> str:
     return "same" if q & r else "other"
 
 
-def search(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
+def search(index: Index, query: dict, embed: EmbedFn, top_k: int | None = 20,
            exclude_ids: tuple[str, ...] = ()) -> list[dict]:
+    """Кандидаты по общему рейтингу (RRF), лучшие первыми; top_k=None - все записи с рейтингом > 0."""
     q_texts = view_texts(query)
     q_views = [v for v in VIEWS if q_texts[v]]
     q_vecs = dict(zip(q_views, embed([q_texts[v] for v in q_views])))
