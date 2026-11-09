@@ -169,12 +169,13 @@ def _apply_judge(res: dict, query: dict, judge, by_id: dict) -> None:
     res["judged_by"] = "llm"
 
 
-def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
+def assess(index: Index, query: dict, embed: EmbedFn, top_k: int | None = 20,
            exclude_ids: tuple[str, ...] = (), judge=None, force_judge: bool = False,
            cal: Calibration | None = None) -> dict:
     """Вердикт по векторам; спорный (или force_judge) - уточняется judge, если он передан.
 
     cal - пороги; по умолчанию data/thresholds.json (если есть) или синтетика.
+    top_k=None - весь реестр: в «Показать ещё» попадает всё найденное, а не первые top_k.
     """
     cal = cal or active_calibration()
     cands = search(index, query, embed, top_k=top_k, exclude_ids=exclude_ids)
@@ -186,9 +187,6 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         t = _thresholds(c, cal)
         c["uncertain"] = t.gray_lo <= c["dense"] < t.gray_hi
         c["sure_same"] = c["relation"] in ("repeat", "other_place") and c["dense"] >= t.gray_hi
-        rec = by_id[c["id"]]
-        c["texts"] = {f: rec.get(f"{f}_clean", "") for f in ("before", "after", "proposal", "result")}
-        c["date_submitted"] = rec.get("date_submitted")
     cands.sort(key=lambda c: (c["score"], c["dense"]), reverse=True)
 
     # какие редкие слова запроса есть в записи - чтобы было видно, почему она найдена
@@ -196,9 +194,13 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
     # цифры (номера цехов и т.п.) как «общие слова» ничего не объясняют
     q_lemmas = {w for w in lemmas(view_texts(query)["full"])
                 if w not in SERVICE_WORDS and not w.isdigit() and bm25.doc_share(w) <= COMMON_SHARE}
+    # через списки «слово -> записи» BM25: не перебираем леммы каждой записи реестра
+    words_of: dict[str, list[str]] = {}
+    for w in sorted(q_lemmas, key=lambda w: -bm25.idf.get(w, 0)):
+        for i in bm25.docs_with(w):
+            words_of.setdefault(index.records[i]["id"], []).append(w)
     for c in cands:
-        common = q_lemmas & set(by_id[c["id"]].get("lemmas") or ())
-        c["matched"] = sorted(common, key=lambda w: -bm25.idf.get(w, 0))[:4]
+        c["matched"] = words_of.get(c["id"], [])[:4]
 
     verdict = _verdict(cands)
     # если всё «далеко», первыми - найденные и по словам, и по смыслу (порядок поиска)
@@ -206,9 +208,14 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
     shown = [c for c in cands if c["relation"] != "far"] or by_search[:3]
     shown_ids = {c["id"] for c in shown}
     # остальное найденное - по смыслу далеко, но может пригодиться (общие слова, та же тема);
-    # в вердикт не входит, в интерфейсе - под «Показать ещё»
-    # без общих слов и с нулевой близостью - просто шум, не показываем; остальное - всё
+    # в вердикт не входит, в интерфейсе - под «Показать ещё». Порядок - общий рейтинг поиска
+    # (RRF): выше те, кто близко и по смыслу, и по словам. Без общих слов и с нулевой
+    # близостью - просто шум, не показываем; остальное - всё
     more = [c for c in by_search if c["id"] not in shown_ids and (c["matched"] or c["score"] > 0)]
+    for c in shown + more:  # тексты - только тем, кто уйдёт в ответ
+        rec = by_id[c["id"]]
+        c["texts"] = {f: rec.get(f"{f}_clean", "") for f in ("before", "after", "proposal", "result")}
+        c["date_submitted"] = rec.get("date_submitted")
     res = {
         "verdict": verdict,
         "verdict_text": VERDICT_TEXT[verdict],
@@ -219,8 +226,8 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int = 20,
         "calibration": cal.source,
         "candidates": shown,
         "more": more,
-        # сводка «по теме»: сколько показано и сколько ППУ во всей базе с ключевыми словами
-        # запроса (не только среди 30 кандидатов)
+        # сводка «по теме»: сколько показано, сколько ещё найдено и сколько ППУ во всей базе
+        # с ключевыми словами запроса
         "topic": {"close": sum(c["relation"] != "far" for c in shown), "more": len(more),
                   "words": [{"word": w, "count": len(bm25.docs_with(w))}
                             for w in sorted(q_lemmas, key=lambda w: -bm25.idf.get(w, 0))

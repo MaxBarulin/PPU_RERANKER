@@ -10,3 +10,7 @@ __pycache__/
 nohup.out
 certs/
 *.pem
+
+# ролик и локальные настройки Claude - не в репозитории
+tools/video/
+.claude/

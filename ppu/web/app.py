@@ -13,6 +13,7 @@ from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -83,6 +84,10 @@ app = FastAPI(title="Проверка ППУ", docs_url=None, redoc_url=None, op
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
        "form-action 'self'; object-src 'none'")
+
+
+# ответ /api/assess со всеми найденными ППУ бывает в несколько мегабайт - сжимаем
+app.add_middleware(GZipMiddleware, minimum_size=2000)
 
 
 @app.middleware("http")
@@ -182,13 +187,18 @@ def _assess(ppu: PPU, with_llm: bool, token: CancelToken) -> dict:
     index, embedder = engine()
     query = make_query(ppu.name, ppu.before, ppu.after, ppu.proposal)
     j = judge() if with_llm else None
-    # 100 лучших по поиску: под «Показать ещё» идут все, кто прошёл фильтр (общие слова или
-    # близость > 0); дальше по списку - уже не похожие записи
-    res = assess(index, query, embedder, force_judge=with_llm, top_k=100,
+    # весь реестр: под «Показать ещё» - всё найденное (общие слова или близость > 0),
+    # по общему рейтингу поиска
+    res = assess(index, query, embedder, force_judge=with_llm, top_k=None,
                  judge=(lambda q, cands: j(q, cands, token=token)) if j else None)
     res["query"] = {"name": query["name_clean"], "completeness": query["completeness"],
                     "entities": query["entities"]}
+    # «Показать ещё» бывает на тысячи карточек: служебные поля поиска интерфейсу не нужны
+    res["more"] = [{k: v for k, v in c.items() if k not in MORE_DROP} for c in res["more"]]
     return res
+
+
+MORE_DROP = {"cos", "rank", "bm25", "dense", "rrf", "sure_same"}
 
 
 def _ignore_result(task: asyncio.Future):

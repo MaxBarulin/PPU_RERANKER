@@ -5,6 +5,7 @@ from ppu.judge import Judge
 from ppu.web import app as web
 
 from test_judge import FakeLLM
+from ppu.search import search
 from test_search import REGISTRY, fake_embed
 
 
@@ -97,6 +98,32 @@ def test_assess_returns_more_and_matched_words(monkeypatch):
     found = data["candidates"] + data["more"]
     assert len({x["id"] for x in found}) == len(found)  # без повторов
     assert any("ручка" in x["matched"] or "напильник" in x["matched"] for x in found)
+
+
+def test_more_has_everything_found_in_search_order(monkeypatch):
+    """«Показать ещё» - все найденные (общие слова или близость > 0), без лимита, по рейтингу поиска."""
+    from ppu.assess import assess
+    from ppu.search import make_query
+    index = build_index(REGISTRY, fake_embed)
+    q = make_query("Ручки для напильников", "мероприятие", "мероприятие")
+    full = assess(index, q, fake_embed, top_k=None)
+    shown = {c["id"] for c in full["candidates"]}
+    expected = {c["id"] for c in search(index, q, fake_embed, top_k=None)} - shown
+    more = full["more"]
+    assert {c["id"] for c in more} <= expected and len(more) == full["topic"]["more"]
+    assert all(c["matched"] or c["score"] > 0 for c in more)
+    assert [c["rrf"] for c in more] == sorted((c["rrf"] for c in more), reverse=True)
+    assert all("texts" in c for c in full["candidates"] + more)
+    # с лимитом находится не больше, чем без него
+    assert len(assess(index, q, fake_embed, top_k=3)["more"]) <= len(more)
+
+
+def test_big_responses_are_gzipped(monkeypatch):
+    r = client(monkeypatch).post("/api/assess", json={"name": "Ручки для напильников"},
+                                 headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and r.json()["candidates"]
+    if len(r.content) >= 2000:
+        assert r.headers.get("content-encoding") == "gzip"
 
 
 def test_topic_summary_and_word_list(monkeypatch):

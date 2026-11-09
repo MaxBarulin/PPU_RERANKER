@@ -137,6 +137,7 @@ details.more { margin-top: 6px; }
 details.more > summary { cursor: pointer; list-style: none; padding: 10px 14px; border: 1px dashed var(--line);
                          border-radius: 9px; color: var(--accent); font-weight: 600; margin-bottom: 10px; }
 details.more > summary::-webkit-details-marker { display: none; }
+button.more-next:not([hidden]) { display: block; width: 100%; margin-bottom: 10px; color: var(--accent); }
 details.more > summary small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
 details.more[open] > summary { color: var(--muted); }
 .external { margin-top: 8px; font-size: 12px; color: var(--repeat); }
@@ -285,11 +286,27 @@ function render(res) {
         </div>` : ""}
     </div>
     ${cands || '<div class="panel empty">Кандидатов нет</div>'}
-    ${more.length ? `<details class="more"><summary>Показать ещё ${more.length}
-        <small>По смыслу они далеко от нового ППУ, но могут пригодиться: общие слова, та же тема</small></summary>
-        ${more.map(candidate).join("")}</details>` : ""}`;
+    ${more.length ? `<details class="more" id="more"><summary>Показать ещё ${more.length}
+        <small>Всё остальное найденное: по смыслу дальше, но есть общие слова или та же тема. Сверху - самые близкие по смыслу и по словам</small></summary>
+        <div id="more-list"></div>
+        <button type="button" class="ghost more-next" id="more-next" hidden></button></details>` : ""}`;
+  // карточки «Показать ещё» дорисовываются порциями: найденных бывают тысячи
+  moreList = more; moreShown = 0;
+  $("#more")?.addEventListener("toggle", (e) => { if (e.target.open && !moreShown) moreChunk(); });
+  $("#more-next")?.addEventListener("click", moreChunk);
   $("#ask-llm")?.addEventListener("click", askLLM);
   document.querySelectorAll("button.word").forEach((b) => b.addEventListener("click", () => showWord(b)));
+}
+
+const MORE_PAGE = 50;
+let moreList = [], moreShown = 0;
+function moreChunk() {
+  const next = moreList.slice(moreShown, moreShown + MORE_PAGE);
+  $("#more-list").insertAdjacentHTML("beforeend", next.map(candidate).join(""));
+  moreShown += next.length;
+  const left = moreList.length - moreShown, btn = $("#more-next");
+  btn.hidden = left <= 0;
+  btn.textContent = `Показать следующие ${Math.min(MORE_PAGE, left)} (осталось ${left})`;
 }
 
 async function post(url, body, signal) {
