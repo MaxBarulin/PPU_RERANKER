@@ -49,6 +49,9 @@ ALT_SOLUTION_MAX = 0.75
 ALT_DENSE_MIN = 0.65
 # Шкала «уникальности»: близость ниже FLOOR - совсем другое ППУ
 FLOOR = 0.55
+# «Почти похоже»: близость чуть ниже порога similar. Вердикт не меняет, но помечается
+# как спорное - пересказ другими словами часто оказывается на 0.01-0.02 ниже порога
+NEAR_MISS = 0.02
 
 
 @dataclass(frozen=True)
@@ -185,7 +188,8 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int | None = 20,
         c["score"] = round(_closeness(c, cal), 3)
         c["relation"] = relation(c, cal)
         t = _thresholds(c, cal)
-        c["uncertain"] = t.gray_lo <= c["dense"] < t.gray_hi
+        c["uncertain"] = t.gray_lo <= c["dense"] < t.gray_hi \
+            or (c["relation"] == "far" and c["dense"] >= t.similar - NEAR_MISS)
         c["sure_same"] = c["relation"] in ("repeat", "other_place") and c["dense"] >= t.gray_hi
     cands.sort(key=lambda c: (c["score"], c["dense"]), reverse=True)
 
@@ -203,9 +207,11 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int | None = 20,
         c["matched"] = words_of.get(c["id"], [])[:4]
 
     verdict = _verdict(cands)
-    # если всё «далеко», первыми - найденные и по словам, и по смыслу (порядок поиска)
     by_search = sorted(cands, key=lambda c: -c["rrf"])
-    shown = [c for c in cands if c["relation"] != "far"] or by_search[:3]
+    # если всё «далеко» - три карточки: самая близкая по смыслу (cands уже по близости)
+    # и первые по общему рейтингу поиска
+    shown = [c for c in cands if c["relation"] != "far"] \
+        or (cands[:1] + [c for c in by_search if c is not cands[0]])[:3]
     shown_ids = {c["id"] for c in shown}
     # остальное найденное - по смыслу далеко, но может пригодиться (общие слова, та же тема);
     # в вердикт не входит, в интерфейсе - под «Показать ещё». Порядок - общий рейтинг поиска
@@ -220,7 +226,8 @@ def assess(index: Index, query: dict, embed: EmbedFn, top_k: int | None = 20,
         "verdict": verdict,
         "verdict_text": VERDICT_TEXT[verdict],
         "uniqueness": round(1 - (cands[0]["score"] if cands else 0.0), 3),
-        # LLM нужен, если нет уверенного повтора, а спорные есть (в т.ч. неуверенный «повтор»)
+        # LLM нужен, если нет уверенного повтора, а спорные есть (в т.ч. неуверенный «повтор»
+        # и «почти похоже» при вердикте «похожих не найдено»)
         "needs_llm": not any(c["sure_same"] for c in shown) and any(c["uncertain"] for c in shown),
         "judged_by": "vectors",
         "calibration": cal.source,
