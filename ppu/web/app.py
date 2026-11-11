@@ -27,6 +27,7 @@ from ..judge import Judge
 from ..lexical import lemmas
 from ..llm import LLM, CancelToken, LLMCancelled, LLMError, is_local
 from ..search import make_query
+from . import proxy
 
 STATIC = Path(__file__).parent / "static"
 
@@ -86,8 +87,19 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 
        "form-action 'self'; object-src 'none'")
 
 
+class _GZip(GZipMiddleware):
+    """Сжатие - кроме /v1: потоковый ответ модели должен уходить сразу, а не копиться."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/v1/"):
+            return await self.app(scope, receive, send)
+        return await super().__call__(scope, receive, send)
+
+
 # ответ /api/assess со всеми найденными ППУ бывает в несколько мегабайт - сжимаем
-app.add_middleware(GZipMiddleware, minimum_size=2000)
+app.add_middleware(_GZip, minimum_size=2000)
+# модели сервера (векторы и LLM) для своих программ - OpenAI-совместимый /v1, см. proxy.py
+app.include_router(proxy.router)
 
 
 @app.middleware("http")
