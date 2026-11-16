@@ -58,7 +58,19 @@ def engine():
         raise NoIndex("Индекса ещё нет - загрузите реестр на странице /admin")
     index = load_index(_index_dir())
     embedder = Embedder(config.embeddings(), cache_path=_cache_path())
+    check_index_model(index.meta, embedder)
     return index, embedder
+
+
+def check_index_model(meta: dict, embedder) -> None:
+    """Векторы запроса и базы - от одной модели (и с одной инструкцией), иначе сравнение - мусор."""
+    have, want = meta.get("model"), getattr(embedder, "model", None)
+    if have and want and have != want:
+        raise NoIndex(f"База посчитана моделью векторов «{have}», а в .env EMB_MODEL={want}. "
+                      "Верните EMB_MODEL или пересоберите базу на /admin")
+    if have and want and meta.get("instruct", "") != getattr(embedder, "instruct", ""):
+        raise NoIndex("База посчитана с другой инструкцией модели векторов (EMB_INSTRUCT) - "
+                      "верните прежнюю или пересоберите базу на /admin")
 
 
 @lru_cache(maxsize=1)

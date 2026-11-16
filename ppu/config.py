@@ -41,3 +41,12 @@ def embeddings() -> Endpoint:
 
 def reranker() -> Endpoint:
     return _endpoint("RERANK")
+
+
+def emb_instruct() -> str:
+    """Инструкция для моделей векторов, которые её ждут (Qwen3-Embedding): EMB_INSTRUCT в .env.
+
+    Для bge-m3 - пусто. Сравниваем ППУ с ППУ (задача симметричная), поэтому инструкция
+    ставится перед каждым текстом - и в базе, и в запросе.
+    """
+    return os.getenv("EMB_INSTRUCT", "").strip()
