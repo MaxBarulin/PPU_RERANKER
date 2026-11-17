@@ -60,7 +60,7 @@ def rebuild(raw_records: list[dict], index_dir: str | Path, embedder, model: str
                                                                       total=total))
 
     index = build_index(records, embed, model)
-    index.meta.update(source=source, report=rep)
+    index.meta.update(source=source, report=rep, instruct=getattr(embedder, "instruct", ""))
 
     progress(stage="Сохранение индекса")
     target = Path(index_dir)

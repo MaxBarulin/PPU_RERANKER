@@ -15,7 +15,7 @@ from typing import Callable
 import numpy as np
 from openai import OpenAI
 
-from .config import Endpoint
+from .config import Endpoint, emb_instruct
 
 # bge-m3 держит 8192 токена; llama-server для эмбеддингов требует,
 # чтобы текст влез в -ub, поэтому режем с запасом
@@ -29,10 +29,12 @@ def _normalize(vecs: np.ndarray) -> np.ndarray:
 
 class Embedder:
     def __init__(self, endpoint: Endpoint, cache_path: str | Path | None = None,
-                 batch_size: int = 32):
+                 batch_size: int = 32, instruct: str | None = None):
         if not endpoint.configured or not endpoint.model:
             raise ValueError("Эмбеддинги не настроены: задай EMB_BASE_URL и EMB_MODEL в .env")
         self.model = endpoint.model
+        # Qwen3-Embedding: «Instruct: …\nQuery: текст»; входит в текст, значит и в ключ кэша
+        self.instruct = emb_instruct() if instruct is None else instruct.strip()
         self.batch_size = batch_size
         self._client = OpenAI(base_url=endpoint.base_url, api_key=endpoint.api_key,
                               timeout=600)
@@ -74,6 +76,8 @@ class Embedder:
         вызывается после каждого пакета, взятые из кэша считаются готовыми.
         """
         texts = [t[:MAX_CHARS] for t in texts]
+        if self.instruct:
+            texts = [f"Instruct: {self.instruct}\nQuery: {t}" for t in texts]
         keys = [self._key(t) for t in texts]
         vecs = self._cached(keys)
         todo = list(dict.fromkeys(k for k in keys if k not in vecs))

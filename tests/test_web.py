@@ -142,3 +142,18 @@ def test_topic_summary_and_word_list(monkeypatch):
 def test_logo_served(monkeypatch):
     r = client(monkeypatch).get("/logo.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
+
+
+def test_index_and_embedding_model_must_match():
+    import pytest
+    from ppu.web.app import NoIndex, check_index_model
+
+    class E:
+        model, instruct = "bge-m3", ""
+
+    check_index_model({"model": "bge-m3"}, E())
+    check_index_model({}, E())  # старая база без записи о модели - не мешаем
+    with pytest.raises(NoIndex, match="EMB_MODEL=bge-m3"):
+        check_index_model({"model": "qwen3-embedding-8b"}, E())
+    with pytest.raises(NoIndex, match="EMB_INSTRUCT"):
+        check_index_model({"model": "bge-m3", "instruct": "Find"}, E())
